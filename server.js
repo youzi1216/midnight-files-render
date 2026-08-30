@@ -1,28 +1,3 @@
-// ============================================================
-// Midnight Files Render Server v1
-// Dedicated Render Server for:
-// 異常夜話 Midnight Files
-//
-// Architecture:
-// POST /render
-// GET  /status/:jobId
-// GET  /download/:jobId
-// GET  /health
-//
-// Features:
-// - Independent jobs
-// - Image / audio download validation
-// - Segment rendering
-// - FFmpeg concat
-// - Opening disclaimer
-// - Date / location overlays
-// - AI reconstruction label
-// - Theory disclaimer
-// - Ending card
-// - Per-job temp directories
-// - Explicit Scene / Shot error reporting
-// ============================================================
-
 'use strict';
 
 const express = require('express');
@@ -41,7 +16,6 @@ app.use(
   })
 );
 
-
 // ============================================================
 // CONFIG
 // ============================================================
@@ -50,7 +24,7 @@ const PORT =
   Number(process.env.PORT || 3000);
 
 const SERVER_VERSION =
-  'midnight-files-render-v1.0.0';
+  'midnight-files-render-v1.1.0';
 
 const HARD_TIMEOUT_MINUTES =
   35;
@@ -76,17 +50,11 @@ const OUTPUT_DIR =
     'outputs'
   );
 
-
-// ============================================================
-// IN-MEMORY JOB STORE
-// ============================================================
-
 const jobs =
   new Map();
 
-
 // ============================================================
-// BASIC HELPERS
+// HELPERS
 // ============================================================
 
 function cleanText(value) {
@@ -100,18 +68,17 @@ function cleanText(value) {
   return String(value).trim();
 }
 
-
 function safeNumber(
   value,
   fallback
 ) {
-  const n = Number(value);
+  const n =
+    Number(value);
 
   return Number.isFinite(n)
     ? n
     : fallback;
 }
-
 
 function safeBoolean(
   value,
@@ -127,7 +94,6 @@ function safeBoolean(
   return fallback;
 }
 
-
 function safeObject(value) {
   if (
     value &&
@@ -140,23 +106,19 @@ function safeObject(value) {
   return {};
 }
 
-
 function safeArray(value) {
   return Array.isArray(value)
     ? value
     : [];
 }
 
-
 function nowIso() {
   return new Date().toISOString();
 }
 
-
 function createJobId() {
   return crypto.randomUUID();
 }
-
 
 function escapeDrawtext(value) {
   return cleanText(value)
@@ -166,7 +128,6 @@ function escapeDrawtext(value) {
     .replace(/%/g, '\\%')
     .replace(/\n/g, ' ');
 }
-
 
 // ============================================================
 // DIRECTORIES
@@ -188,9 +149,8 @@ async function ensureDirectories() {
   );
 }
 
-
 // ============================================================
-// JOB
+// JOB STATE
 // ============================================================
 
 function publicJob(job) {
@@ -238,8 +198,17 @@ function publicJob(job) {
     total_audio_parts:
       job.total_audio_parts,
 
-    audio_duration:
-      job.audio_duration ?? null,
+    narration_duration:
+      job.narration_duration ?? null,
+
+    final_audio_duration:
+      job.final_audio_duration ?? null,
+
+    opening_duration:
+      job.opening_duration ?? null,
+
+    ending_duration:
+      job.ending_duration ?? null,
 
     output_size_bytes:
       job.output_size_bytes ?? null,
@@ -252,6 +221,9 @@ function publicJob(job) {
 
     failed_shot_index:
       job.failed_shot_index ?? null,
+
+    failed_audio_part:
+      job.failed_audio_part ?? null,
 
     failed_url:
       job.failed_url ?? null,
@@ -268,7 +240,6 @@ function publicJob(job) {
         : null
   };
 }
-
 
 function updateJob(
   jobId,
@@ -287,9 +258,8 @@ function updateJob(
   );
 }
 
-
 // ============================================================
-// RUN PROCESS
+// PROCESS
 // ============================================================
 
 function runProcess(
@@ -317,10 +287,8 @@ function runProcess(
           }
         );
 
-
       let stdout = '';
       let stderr = '';
-
 
       child.stdout.on(
         'data',
@@ -340,7 +308,6 @@ function runProcess(
         }
       );
 
-
       child.stderr.on(
         'data',
         chunk => {
@@ -359,14 +326,10 @@ function runProcess(
         }
       );
 
-
       child.on(
         'error',
-        error => {
-          reject(error);
-        }
+        reject
       );
-
 
       child.on(
         'close',
@@ -383,7 +346,6 @@ function runProcess(
             return;
           }
 
-
           const error =
             new Error(
               `${command} exited with code ${code}\n${stderr}`
@@ -398,11 +360,9 @@ function runProcess(
           reject(error);
         }
       );
-
     }
   );
 }
-
 
 // ============================================================
 // DOWNLOAD
@@ -420,16 +380,13 @@ async function downloadFile({
   const cleanUrl =
     cleanText(url);
 
-
   if (!cleanUrl) {
     throw new Error(
       `${type} download URL is empty`
     );
   }
 
-
   let response;
-
 
   try {
 
@@ -437,10 +394,12 @@ async function downloadFile({
       await fetch(
         cleanUrl,
         {
-          redirect: 'follow',
+          redirect:
+            'follow',
+
           headers: {
             'User-Agent':
-              'Midnight-Files-Render/1.0'
+              'Midnight-Files-Render/1.1'
           }
         }
       );
@@ -467,10 +426,7 @@ async function downloadFile({
     throw wrapped;
   }
 
-
-  if (
-    !response.ok
-  ) {
+  if (!response.ok) {
 
     const wrapped =
       new Error(
@@ -495,7 +451,6 @@ async function downloadFile({
     throw wrapped;
   }
 
-
   const contentType =
     cleanText(
       response.headers.get(
@@ -503,9 +458,6 @@ async function downloadFile({
       )
     ).toLowerCase();
 
-
-  // Google Drive 若權限錯誤，
-  // 有時會回 HTML 而不是圖片 / 音訊。
   if (
     contentType.includes(
       'text/html'
@@ -532,16 +484,13 @@ async function downloadFile({
     throw wrapped;
   }
 
-
   const arrayBuffer =
     await response.arrayBuffer();
-
 
   const buffer =
     Buffer.from(
       arrayBuffer
     );
-
 
   if (
     buffer.length <
@@ -568,12 +517,10 @@ async function downloadFile({
     throw wrapped;
   }
 
-
   await fsp.writeFile(
     destination,
     buffer
   );
-
 
   return {
     bytes:
@@ -584,12 +531,11 @@ async function downloadFile({
   };
 }
 
-
 // ============================================================
 // FFPROBE
 // ============================================================
 
-async function getAudioDuration(
+async function getMediaDuration(
   filePath
 ) {
 
@@ -610,7 +556,6 @@ async function getAudioDuration(
       ]
     );
 
-
   const duration =
     Number(
       cleanText(
@@ -618,21 +563,17 @@ async function getAudioDuration(
       )
     );
 
-
   if (
     !Number.isFinite(duration) ||
     duration <= 0
   ) {
-
     throw new Error(
-      `Unable to determine audio duration: ${filePath}`
+      `Unable to determine media duration: ${filePath}`
     );
   }
 
-
   return duration;
 }
-
 
 // ============================================================
 // FONT
@@ -641,7 +582,6 @@ async function getAudioDuration(
 async function detectFont() {
 
   const candidates = [
-
     process.env.CJK_FONT_PATH,
 
     '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
@@ -653,9 +593,7 @@ async function detectFont() {
     '/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc',
 
     '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
-
   ].filter(Boolean);
-
 
   for (
     const candidate
@@ -671,16 +609,13 @@ async function detectFont() {
       return candidate;
 
     } catch (_) {}
-
   }
-
 
   return '';
 }
 
-
 // ============================================================
-// DRAW TEXT FILTER
+// DRAW TEXT
 // ============================================================
 
 function drawTextFilter({
@@ -699,11 +634,9 @@ function drawTextFilter({
   const value =
     escapeDrawtext(text);
 
-
   if (!value) {
     return '';
   }
-
 
   const args = [
     'drawtext=',
@@ -715,7 +648,6 @@ function drawTextFilter({
     `:y=${y}`
   ];
 
-
   if (box) {
     args.push(
       ':box=1',
@@ -724,20 +656,17 @@ function drawTextFilter({
     );
   }
 
-
   if (enable) {
     args.push(
       `:enable='${enable}'`
     );
   }
 
-
   return args.join('');
 }
 
-
 // ============================================================
-// NORMALIZE SETTINGS
+// SETTINGS
 // ============================================================
 
 function normalizeRenderSettings(
@@ -746,7 +675,6 @@ function normalizeRenderSettings(
 
   const source =
     safeObject(input);
-
 
   const width =
     Math.max(
@@ -762,7 +690,6 @@ function normalizeRenderSettings(
       )
     );
 
-
   const height =
     Math.max(
       360,
@@ -776,7 +703,6 @@ function normalizeRenderSettings(
         )
       )
     );
-
 
   return {
     width,
@@ -838,6 +764,11 @@ function normalizeRenderSettings(
         )
       ),
 
+    audio_bitrate:
+      cleanText(
+        source.audio_bitrate
+      ) || '160k',
+
     video_codec:
       'libx264',
 
@@ -845,19 +776,9 @@ function normalizeRenderSettings(
       'aac',
 
     pixel_format:
-      'yuv420p',
-
-    audio_bitrate:
-      cleanText(
-        source.audio_bitrate
-      ) || '160k'
+      'yuv420p'
   };
 }
-
-
-// ============================================================
-// NORMALIZE PRESENTATION
-// ============================================================
 
 function normalizePresentation(
   input
@@ -866,36 +787,30 @@ function normalizePresentation(
   const source =
     safeObject(input);
 
-
   const opening =
     safeObject(
       source.opening_disclaimer
     );
-
 
   const reconstruction =
     safeObject(
       source.reconstruction_overlay
     );
 
-
   const info =
     safeObject(
       source.info_card
     );
-
 
   const theory =
     safeObject(
       source.theory_overlay
     );
 
-
   const ending =
     safeObject(
       source.ending_card
     );
-
 
   return {
 
@@ -931,7 +846,6 @@ function normalizePresentation(
         '部分畫面為 AI 情境重建，非事件原始影像'
     },
 
-
     reconstruction_overlay: {
       enabled:
         safeBoolean(
@@ -945,7 +859,6 @@ function normalizePresentation(
         ) ||
         'AI 情境重建'
     },
-
 
     info_card: {
       enabled:
@@ -979,7 +892,6 @@ function normalizePresentation(
         )
     },
 
-
     theory_overlay: {
       enabled:
         safeBoolean(
@@ -999,7 +911,6 @@ function normalizePresentation(
         ) ||
         '以上為可能性分析，並非案件定論'
     },
-
 
     ending_card: {
       enabled:
@@ -1038,13 +949,58 @@ function normalizePresentation(
         ) ||
         '案件至今仍留下未解疑點'
     }
-
   };
 }
 
+// ============================================================
+// SILENCE
+// ============================================================
+
+async function createSilence({
+  destination,
+  duration,
+  settings
+}) {
+
+  if (
+    duration <= 0
+  ) {
+    return;
+  }
+
+  await runProcess(
+    'ffmpeg',
+    [
+      '-y',
+
+      '-f',
+      'lavfi',
+
+      '-i',
+      'anullsrc=channel_layout=stereo:sample_rate=48000',
+
+      '-t',
+      String(duration),
+
+      '-c:a',
+      'aac',
+
+      '-b:a',
+      settings.audio_bitrate,
+
+      '-ar',
+      '48000',
+
+      '-ac',
+      '2',
+
+      destination
+    ]
+  );
+}
 
 // ============================================================
-// CREATE OPENING CARD
+// OPENING CARD
 // ============================================================
 
 async function createOpeningCard({
@@ -1063,15 +1019,11 @@ async function createOpeningCard({
     threads
   } = settings;
 
-
   const opening =
-    presentation.opening_disclaimer;
+    presentation
+      .opening_disclaimer;
 
-
-  const filters = [];
-
-
-  filters.push(
+  const filters = [
     drawTextFilter({
       text:
         opening.line_1,
@@ -1091,11 +1043,8 @@ async function createOpeningCard({
 
       box:
         false
-    })
-  );
+    }),
 
-
-  filters.push(
     drawTextFilter({
       text:
         opening.line_2,
@@ -1119,8 +1068,7 @@ async function createOpeningCard({
       box:
         false
     })
-  );
-
+  ];
 
   await runProcess(
     'ffmpeg',
@@ -1160,9 +1108,8 @@ async function createOpeningCard({
   );
 }
 
-
 // ============================================================
-// CREATE ENDING CARD
+// ENDING CARD
 // ============================================================
 
 async function createEndingCard({
@@ -1181,15 +1128,11 @@ async function createEndingCard({
     threads
   } = settings;
 
-
   const ending =
-    presentation.ending_card;
+    presentation
+      .ending_card;
 
-
-  const filters = [];
-
-
-  filters.push(
+  const filters = [
     drawTextFilter({
       text:
         ending.title,
@@ -1209,11 +1152,8 @@ async function createEndingCard({
 
       box:
         false
-    })
-  );
+    }),
 
-
-  filters.push(
     drawTextFilter({
       text:
         ending.subtitle,
@@ -1236,11 +1176,8 @@ async function createEndingCard({
 
       box:
         false
-    })
-  );
+    }),
 
-
-  filters.push(
     drawTextFilter({
       text:
         ending.footer,
@@ -1264,8 +1201,7 @@ async function createEndingCard({
       box:
         false
     })
-  );
-
+  ];
 
   await runProcess(
     'ffmpeg',
@@ -1305,9 +1241,8 @@ async function createEndingCard({
   );
 }
 
-
 // ============================================================
-// CREATE VISUAL SEGMENT
+// VISUAL SEGMENT
 // ============================================================
 
 async function createVisualSegment({
@@ -1329,19 +1264,12 @@ async function createVisualSegment({
     threads
   } = settings;
 
-
   const p =
     safeObject(
       visual.presentation
     );
 
-
   const filters = [];
-
-
-  // ----------------------------------------------------------
-  // Scale + Crop
-  // ----------------------------------------------------------
 
   filters.push(
     `scale=${width}:${height}:force_original_aspect_ratio=increase`
@@ -1351,14 +1279,6 @@ async function createVisualSegment({
     `crop=${width}:${height}`
   );
 
-
-  // ----------------------------------------------------------
-  // Gentle cinematic motion
-  //
-  // 使用 zoompan，
-  // 但幅度保持非常低，避免免費 Render CPU 壓力過高。
-  // ----------------------------------------------------------
-
   const totalFrames =
     Math.max(
       1,
@@ -1367,16 +1287,11 @@ async function createVisualSegment({
       )
     );
 
-
   filters.push(
     `zoompan=z='min(zoom+0.00008,1.02)':d=${totalFrames}:s=${width}x${height}:fps=${fps}`
   );
 
-
-  // ----------------------------------------------------------
-  // Reconstruction Label
-  // ----------------------------------------------------------
-
+  // AI reconstruction
   if (
     presentationSettings
       .reconstruction_overlay
@@ -1393,7 +1308,6 @@ async function createVisualSegment({
       presentationSettings
         .reconstruction_overlay
         .text;
-
 
     filters.push(
       drawTextFilter({
@@ -1423,14 +1337,9 @@ async function createVisualSegment({
           10
       })
     );
-
   }
 
-
-  // ----------------------------------------------------------
-  // Date + Location
-  // ----------------------------------------------------------
-
+  // Date / Location
   if (
     presentationSettings
       .info_card
@@ -1446,7 +1355,6 @@ async function createVisualSegment({
           )
         : '';
 
-
     const location =
       presentationSettings
         .info_card
@@ -1456,7 +1364,6 @@ async function createVisualSegment({
           )
         : '';
 
-
     const maxDuration =
       Math.min(
         duration,
@@ -1465,13 +1372,10 @@ async function createVisualSegment({
           .max_duration
       );
 
-
     const enable =
       `between(t,0,${maxDuration})`;
 
-
     if (date) {
-
       filters.push(
         drawTextFilter({
           text:
@@ -1499,12 +1403,9 @@ async function createVisualSegment({
           enable
         })
       );
-
     }
 
-
     if (location) {
-
       filters.push(
         drawTextFilter({
           text:
@@ -1535,16 +1436,10 @@ async function createVisualSegment({
           enable
         })
       );
-
     }
-
   }
 
-
-  // ----------------------------------------------------------
   // Theory
-  // ----------------------------------------------------------
-
   if (
     presentationSettings
       .theory_overlay
@@ -1555,7 +1450,7 @@ async function createVisualSegment({
     ) === 'theory'
   ) {
 
-    const title =
+    const theoryTitle =
       cleanText(
         p.theory_label
       )
@@ -1564,8 +1459,7 @@ async function createVisualSegment({
         .theory_overlay
         .default_title;
 
-
-    const disclaimer =
+    const theoryDisclaimer =
       cleanText(
         p.disclaimer
       )
@@ -1574,11 +1468,10 @@ async function createVisualSegment({
         .theory_overlay
         .default_disclaimer;
 
-
     filters.push(
       drawTextFilter({
         text:
-          title,
+          theoryTitle,
 
         fontFile,
 
@@ -1601,11 +1494,10 @@ async function createVisualSegment({
       })
     );
 
-
     filters.push(
       drawTextFilter({
         text:
-          disclaimer,
+          theoryDisclaimer,
 
         fontFile,
 
@@ -1630,15 +1522,7 @@ async function createVisualSegment({
           10
       })
     );
-
   }
-
-
-  const filterChain =
-    filters
-      .filter(Boolean)
-      .join(',');
-
 
   await runProcess(
     'ffmpeg',
@@ -1655,7 +1539,9 @@ async function createVisualSegment({
       String(duration),
 
       '-vf',
-      filterChain,
+      filters
+        .filter(Boolean)
+        .join(','),
 
       '-an',
 
@@ -1685,9 +1571,8 @@ async function createVisualSegment({
   );
 }
 
-
 // ============================================================
-// CONCAT VIDEO SEGMENTS
+// CONCAT VIDEO
 // ============================================================
 
 async function concatVideoSegments({
@@ -1703,7 +1588,6 @@ async function concatVideoSegments({
       'video_concat.txt'
     );
 
-
   const content =
     files
       .map(
@@ -1712,15 +1596,12 @@ async function concatVideoSegments({
       )
       .join('\n');
 
-
   await fsp.writeFile(
     concatFile,
     content,
     'utf8'
   );
 
-
-  // 先嘗試 stream copy
   try {
 
     await runProcess(
@@ -1748,8 +1629,6 @@ async function concatVideoSegments({
 
   } catch (_) {}
 
-
-  // fallback re-encode
   await runProcess(
     'ffmpeg',
     [
@@ -1788,7 +1667,6 @@ async function concatVideoSegments({
   );
 }
 
-
 // ============================================================
 // CONCAT AUDIO
 // ============================================================
@@ -1806,7 +1684,6 @@ async function concatAudio({
       'audio_concat.txt'
     );
 
-
   const content =
     files
       .map(
@@ -1815,13 +1692,11 @@ async function concatAudio({
       )
       .join('\n');
 
-
   await fsp.writeFile(
     concatFile,
     content,
     'utf8'
   );
-
 
   await runProcess(
     'ffmpeg',
@@ -1837,6 +1712,12 @@ async function concatAudio({
       '-i',
       concatFile,
 
+      '-ar',
+      '48000',
+
+      '-ac',
+      '2',
+
       '-c:a',
       'aac',
 
@@ -1848,6 +1729,89 @@ async function concatAudio({
   );
 }
 
+// ============================================================
+// BUILD FINAL AUDIO TIMELINE
+// ============================================================
+
+async function buildFinalAudioTimeline({
+  narrationPath,
+  openingDuration,
+  endingDuration,
+  destination,
+  workDir,
+  settings
+}) {
+
+  const parts = [];
+
+  // Opening silence
+  if (
+    openingDuration > 0
+  ) {
+
+    const openingSilence =
+      path.join(
+        workDir,
+        'opening_silence.m4a'
+      );
+
+    await createSilence({
+      destination:
+        openingSilence,
+
+      duration:
+        openingDuration,
+
+      settings
+    });
+
+    parts.push(
+      openingSilence
+    );
+  }
+
+  // Narration
+  parts.push(
+    narrationPath
+  );
+
+  // Ending silence
+  if (
+    endingDuration > 0
+  ) {
+
+    const endingSilence =
+      path.join(
+        workDir,
+        'ending_silence.m4a'
+      );
+
+    await createSilence({
+      destination:
+        endingSilence,
+
+      duration:
+        endingDuration,
+
+      settings
+    });
+
+    parts.push(
+      endingSilence
+    );
+  }
+
+  await concatAudio({
+    files:
+      parts,
+
+    destination,
+
+    workDir,
+
+    settings
+  });
+}
 
 // ============================================================
 // FINAL MUX
@@ -1899,7 +1863,6 @@ async function muxFinal({
   );
 }
 
-
 // ============================================================
 // MAIN RENDER
 // ============================================================
@@ -1909,16 +1872,11 @@ async function processRender(
   payload
 ) {
 
-  const job =
-    jobs.get(jobId);
-
-
   const workDir =
     path.join(
       JOBS_DIR,
       jobId
     );
-
 
   const imageDir =
     path.join(
@@ -1926,13 +1884,11 @@ async function processRender(
       'images'
     );
 
-
   const audioDir =
     path.join(
       workDir,
       'audio'
     );
-
 
   const segmentDir =
     path.join(
@@ -1940,12 +1896,7 @@ async function processRender(
       'segments'
     );
 
-
   try {
-
-    // --------------------------------------------------------
-    // Start
-    // --------------------------------------------------------
 
     updateJob(
       jobId,
@@ -1964,76 +1915,78 @@ async function processRender(
       }
     );
 
+    await Promise.all([
+      fsp.mkdir(
+        imageDir,
+        {
+          recursive: true
+        }
+      ),
 
-    await fsp.mkdir(
-      imageDir,
-      {
-        recursive: true
-      }
-    );
+      fsp.mkdir(
+        audioDir,
+        {
+          recursive: true
+        }
+      ),
 
-
-    await fsp.mkdir(
-      audioDir,
-      {
-        recursive: true
-      }
-    );
-
-
-    await fsp.mkdir(
-      segmentDir,
-      {
-        recursive: true
-      }
-    );
-
-
-    // --------------------------------------------------------
-    // Payload
-    // --------------------------------------------------------
+      fsp.mkdir(
+        segmentDir,
+        {
+          recursive: true
+        }
+      )
+    ]);
 
     const scenes =
       safeArray(
         payload.scenes
       );
 
-
     const audioParts =
       safeArray(
         payload.audio_parts
       );
 
-
-    if (
-      scenes.length === 0
-    ) {
+    if (!scenes.length) {
       throw new Error(
         'Payload contains no scenes'
       );
     }
 
-
-    if (
-      audioParts.length === 0
-    ) {
+    if (!audioParts.length) {
       throw new Error(
         'Payload contains no audio_parts'
       );
     }
-
 
     const settings =
       normalizeRenderSettings(
         payload.render_settings
       );
 
-
     const presentation =
       normalizePresentation(
         payload.presentation_settings
       );
 
+    const openingDuration =
+      presentation
+        .opening_disclaimer
+        .enabled
+        ? presentation
+            .opening_disclaimer
+            .duration
+        : 0;
+
+    const endingDuration =
+      presentation
+        .ending_card
+        .enabled
+        ? presentation
+            .ending_card
+            .duration
+        : 0;
 
     updateJob(
       jobId,
@@ -2042,15 +1995,17 @@ async function processRender(
           scenes.length,
 
         total_audio_parts:
-          audioParts.length
+          audioParts.length,
+
+        opening_duration:
+          openingDuration,
+
+        ending_duration:
+          endingDuration
       }
     );
 
-
-    // --------------------------------------------------------
     // Font
-    // --------------------------------------------------------
-
     updateJob(
       jobId,
       {
@@ -2062,26 +2017,17 @@ async function processRender(
       }
     );
 
-
     const fontFile =
       await detectFont();
 
-
     if (!fontFile) {
-
       throw new Error(
         'No usable font found. Install Noto Sans CJK or set CJK_FONT_PATH.'
       );
-
     }
 
-
-    // --------------------------------------------------------
-    // Download Images
-    // --------------------------------------------------------
-
+    // Images
     const imagePaths = [];
-
 
     for (
       let index = 0;
@@ -2092,13 +2038,11 @@ async function processRender(
       const visual =
         scenes[index] ?? {};
 
-
       const sceneNumber =
         safeNumber(
           visual.scene_number,
           null
         );
-
 
       const shotIndex =
         safeNumber(
@@ -2106,12 +2050,10 @@ async function processRender(
           null
         );
 
-
       const imageUrl =
         cleanText(
           visual.image_url
         );
-
 
       if (!imageUrl) {
 
@@ -2128,7 +2070,6 @@ async function processRender(
 
         throw error;
       }
-
 
       updateJob(
         jobId,
@@ -2150,57 +2091,33 @@ async function processRender(
         }
       );
 
-
       const destination =
         path.join(
           imageDir,
           `visual_${String(index + 1).padStart(3, '0')}.img`
         );
 
+      await downloadFile({
+        url:
+          imageUrl,
 
-      try {
+        destination,
 
-        await downloadFile({
-          url:
-            imageUrl,
+        type:
+          'image',
 
-          destination,
+        sceneNumber,
 
-          type:
-            'image',
-
-          sceneNumber,
-
-          shotIndex
-        });
-
-      } catch (error) {
-
-        error.sceneNumber =
-          error.sceneNumber ??
-          sceneNumber;
-
-        error.shotIndex =
-          error.shotIndex ??
-          shotIndex;
-
-        throw error;
-      }
-
+        shotIndex
+      });
 
       imagePaths.push(
         destination
       );
-
     }
 
-
-    // --------------------------------------------------------
-    // Download Audio
-    // --------------------------------------------------------
-
+    // Audio
     const audioPaths = [];
-
 
     for (
       let index = 0;
@@ -2211,19 +2128,16 @@ async function processRender(
       const part =
         audioParts[index] ?? {};
 
-
       const partIndex =
         safeNumber(
           part.part_index,
           index + 1
         );
 
-
       const audioUrl =
         cleanText(
           part.audio_url
         );
-
 
       if (!audioUrl) {
 
@@ -2237,7 +2151,6 @@ async function processRender(
 
         throw error;
       }
-
 
       updateJob(
         jobId,
@@ -2259,13 +2172,11 @@ async function processRender(
         }
       );
 
-
       const destination =
         path.join(
           audioDir,
           `audio_${String(partIndex).padStart(3, '0')}.mp3`
         );
-
 
       await downloadFile({
         url:
@@ -2279,18 +2190,12 @@ async function processRender(
         partIndex
       });
 
-
       audioPaths.push(
         destination
       );
-
     }
 
-
-    // --------------------------------------------------------
-    // Concatenate Audio
-    // --------------------------------------------------------
-
+    // Narration concat
     updateJob(
       jobId,
       {
@@ -2298,90 +2203,104 @@ async function processRender(
           25,
 
         current_step:
-          'concatenating_audio'
+          'concatenating_narration'
       }
     );
 
-
-    const combinedAudio =
+    const narrationAudio =
       path.join(
         workDir,
-        'combined_audio.m4a'
+        'narration_audio.m4a'
       );
-
 
     await concatAudio({
       files:
         audioPaths,
 
       destination:
-        combinedAudio,
+        narrationAudio,
 
       workDir,
 
       settings
     });
 
-
-    const audioDuration =
-      await getAudioDuration(
-        combinedAudio
+    const narrationDuration =
+      await getMediaDuration(
+        narrationAudio
       );
-
 
     updateJob(
       jobId,
       {
-        audio_duration:
+        narration_duration:
           Number(
-            audioDuration.toFixed(3)
+            narrationDuration.toFixed(3)
           )
       }
     );
 
+    // Final audio timeline:
+    // silence + narration + silence
+    updateJob(
+      jobId,
+      {
+        progress:
+          27,
 
-    // --------------------------------------------------------
-    // Calculate Visual Duration
-    //
-    // Opening + ending are silent cards.
-    // Narration duration is distributed across visual scenes.
-    // --------------------------------------------------------
+        current_step:
+          'building_audio_timeline'
+      }
+    );
 
-    const openingDuration =
-      presentation
-        .opening_disclaimer
-        .enabled
-        ? presentation
-            .opening_disclaimer
-            .duration
-        : 0;
+    const finalAudio =
+      path.join(
+        workDir,
+        'final_audio.m4a'
+      );
 
+    await buildFinalAudioTimeline({
+      narrationPath:
+        narrationAudio,
 
-    const endingDuration =
-      presentation
-        .ending_card
-        .enabled
-        ? presentation
-            .ending_card
-            .duration
-        : 0;
+      openingDuration,
 
+      endingDuration,
 
+      destination:
+        finalAudio,
+
+      workDir,
+
+      settings
+    });
+
+    const finalAudioDuration =
+      await getMediaDuration(
+        finalAudio
+      );
+
+    updateJob(
+      jobId,
+      {
+        final_audio_duration:
+          Number(
+            finalAudioDuration.toFixed(3)
+          )
+      }
+    );
+
+    // Narration only determines visual scene duration
     const baseVisualDuration =
       Math.max(
         2.5,
-        audioDuration /
+        narrationDuration /
         scenes.length
       );
 
-
-    // --------------------------------------------------------
-    // Opening Card
-    // --------------------------------------------------------
-
     const videoSegments = [];
 
-
+    // Opening
     if (
       presentation
         .opening_disclaimer
@@ -2392,20 +2311,18 @@ async function processRender(
         jobId,
         {
           progress:
-            28,
+            29,
 
           current_step:
             'rendering_opening_disclaimer'
         }
       );
 
-
       const openingPath =
         path.join(
           segmentDir,
           'segment_000_opening.mp4'
         );
-
 
       await createOpeningCard({
         destination:
@@ -2418,18 +2335,12 @@ async function processRender(
         fontFile
       });
 
-
       videoSegments.push(
         openingPath
       );
-
     }
 
-
-    // --------------------------------------------------------
-    // Visual Segments
-    // --------------------------------------------------------
-
+    // Visuals
     for (
       let index = 0;
       index < scenes.length;
@@ -2439,16 +2350,13 @@ async function processRender(
       const visual =
         scenes[index] ?? {};
 
-
       const p =
         safeObject(
           visual.presentation
         );
 
-
       let duration =
         baseVisualDuration;
-
 
       const recommended =
         safeNumber(
@@ -2456,10 +2364,6 @@ async function processRender(
           0
         );
 
-
-      // Hook only:
-      // 如果 metadata 有明確推薦時長，
-      // 只在合理範圍使用。
       if (
         cleanText(
           p.scene_type
@@ -2469,12 +2373,9 @@ async function processRender(
         &&
         recommended <= 7
       ) {
-
         duration =
           recommended;
-
       }
-
 
       updateJob(
         jobId,
@@ -2496,13 +2397,11 @@ async function processRender(
         }
       );
 
-
       const segmentPath =
         path.join(
           segmentDir,
           `segment_${String(index + 1).padStart(3, '0')}.mp4`
         );
-
 
       await createVisualSegment({
         imagePath:
@@ -2523,18 +2422,12 @@ async function processRender(
         fontFile
       });
 
-
       videoSegments.push(
         segmentPath
       );
-
     }
 
-
-    // --------------------------------------------------------
-    // Ending Card
-    // --------------------------------------------------------
-
+    // Ending
     if (
       presentation
         .ending_card
@@ -2552,13 +2445,11 @@ async function processRender(
         }
       );
 
-
       const endingPath =
         path.join(
           segmentDir,
           'segment_999_ending.mp4'
         );
-
 
       await createEndingCard({
         destination:
@@ -2571,18 +2462,12 @@ async function processRender(
         fontFile
       });
 
-
       videoSegments.push(
         endingPath
       );
-
     }
 
-
-    // --------------------------------------------------------
-    // Concat Video
-    // --------------------------------------------------------
-
+    // Concat video
     updateJob(
       jobId,
       {
@@ -2594,13 +2479,11 @@ async function processRender(
       }
     );
 
-
     const combinedVideo =
       path.join(
         workDir,
         'combined_video.mp4'
       );
-
 
     await concatVideoSegments({
       files:
@@ -2614,11 +2497,7 @@ async function processRender(
       settings
     });
 
-
-    // --------------------------------------------------------
-    // Final Mux
-    // --------------------------------------------------------
-
+    // Final mux
     updateJob(
       jobId,
       {
@@ -2630,20 +2509,18 @@ async function processRender(
       }
     );
 
-
     const outputPath =
       path.join(
         OUTPUT_DIR,
         `${jobId}.mp4`
       );
 
-
     await muxFinal({
       videoPath:
         combinedVideo,
 
       audioPath:
-        combinedAudio,
+        finalAudio,
 
       destination:
         outputPath,
@@ -2651,16 +2528,10 @@ async function processRender(
       settings
     });
 
-
-    // --------------------------------------------------------
-    // Output validation
-    // --------------------------------------------------------
-
     const stat =
       await fsp.stat(
         outputPath
       );
-
 
     if (
       stat.size <
@@ -2670,11 +2541,6 @@ async function processRender(
         `Final output is unexpectedly small: ${stat.size} bytes`
       );
     }
-
-
-    // --------------------------------------------------------
-    // Completed
-    // --------------------------------------------------------
 
     updateJob(
       jobId,
@@ -2702,35 +2568,22 @@ async function processRender(
       }
     );
 
-
-    // --------------------------------------------------------
-    // Clean work directory
-    //
-    // 保留 final output。
-    // --------------------------------------------------------
-
     try {
 
       await fsp.rm(
         workDir,
         {
-          recursive: true,
-          force: true
+          recursive:
+            true,
+
+          force:
+            true
         }
       );
 
     } catch (_) {}
 
   } catch (error) {
-
-    const timedOut =
-      cleanText(
-        error.message
-      ).toLowerCase()
-        .includes(
-          'timeout'
-        );
-
 
     updateJob(
       jobId,
@@ -2759,28 +2612,25 @@ async function processRender(
           error.shotIndex ??
           null,
 
-        failed_url:
-          error.failedUrl ??
+        failed_audio_part:
+          error.partIndex ??
           null,
 
-        timeout:
-          timedOut
+        failed_url:
+          error.failedUrl ??
+          null
       }
     );
-
 
     console.error(
       `[${jobId}] Render failed`,
       error
     );
-
   }
-
 }
 
-
 // ============================================================
-// RENDER WITH HARD TIMEOUT
+// HARD TIMEOUT
 // ============================================================
 
 async function processRenderWithTimeout(
@@ -2789,7 +2639,6 @@ async function processRenderWithTimeout(
 ) {
 
   let timeoutHandle;
-
 
   const timeoutPromise =
     new Promise(
@@ -2807,6 +2656,9 @@ async function processRenderWithTimeout(
                   `Render hard timeout after ${HARD_TIMEOUT_MINUTES} minutes`
                 );
 
+              error.isTimeout =
+                true;
+
               reject(error);
 
             },
@@ -2815,7 +2667,6 @@ async function processRenderWithTimeout(
 
       }
     );
-
 
   try {
 
@@ -2857,11 +2708,8 @@ async function processRenderWithTimeout(
     clearTimeout(
       timeoutHandle
     );
-
   }
-
 }
-
 
 // ============================================================
 // HEALTH
@@ -2878,7 +2726,6 @@ app.get(
 
       await ensureDirectories();
 
-
       res.json({
         ok:
           true,
@@ -2891,6 +2738,9 @@ app.get(
 
         render_mode:
           'segment-render-concat',
+
+        audio_timeline:
+          'opening-silence + narration + ending-silence',
 
         resolution_default:
           '1280x720',
@@ -2933,15 +2783,12 @@ app.get(
           error:
             error.message
         });
-
     }
-
   }
 );
 
-
 // ============================================================
-// CREATE RENDER JOB
+// CREATE JOB
 // ============================================================
 
 app.post(
@@ -2955,54 +2802,39 @@ app.post(
 
       await ensureDirectories();
 
-
       const payload =
         req.body ?? {};
-
 
       const scenes =
         safeArray(
           payload.scenes
         );
 
-
       const audioParts =
         safeArray(
           payload.audio_parts
         );
 
-
-      if (
-        scenes.length === 0
-      ) {
-
+      if (!scenes.length) {
         return res
           .status(400)
           .json({
             error:
               'scenes is required'
           });
-
       }
 
-
-      if (
-        audioParts.length === 0
-      ) {
-
+      if (!audioParts.length) {
         return res
           .status(400)
           .json({
             error:
               'audio_parts is required'
           });
-
       }
-
 
       const jobId =
         createJobId();
-
 
       const job = {
         job_id:
@@ -3032,7 +2864,16 @@ app.post(
         total_audio_parts:
           audioParts.length,
 
-        audio_duration:
+        narration_duration:
+          null,
+
+        final_audio_duration:
+          null,
+
+        opening_duration:
+          null,
+
+        ending_duration:
           null,
 
         output_path:
@@ -3050,6 +2891,9 @@ app.post(
         failed_shot_index:
           null,
 
+        failed_audio_part:
+          null,
+
         failed_url:
           null,
 
@@ -3057,14 +2901,11 @@ app.post(
           false
       };
 
-
       jobs.set(
         jobId,
         job
       );
 
-
-      // 非同步執行
       setImmediate(
         () => {
 
@@ -3073,18 +2914,14 @@ app.post(
             payload
           ).catch(
             error => {
-
               console.error(
                 `[${jobId}] Unhandled render error`,
                 error
               );
-
             }
           );
-
         }
       );
-
 
       return res
         .status(202)
@@ -3112,19 +2949,15 @@ app.post(
         error
       );
 
-
       return res
         .status(500)
         .json({
           error:
             error.message
         });
-
     }
-
   }
 );
-
 
 // ============================================================
 // STATUS
@@ -3142,28 +2975,22 @@ app.get(
         req.params.jobId
       );
 
-
     if (!job) {
-
       return res
         .status(404)
         .json({
           error:
             'Job not found'
         });
-
     }
-
 
     return res.json(
       publicJob(
         job
       )
     );
-
   }
 );
-
 
 // ============================================================
 // DOWNLOAD
@@ -3181,24 +3008,19 @@ app.get(
         req.params.jobId
       );
 
-
     if (!job) {
-
       return res
         .status(404)
         .json({
           error:
             'Job not found'
         });
-
     }
-
 
     if (
       job.status !==
       'completed'
     ) {
-
       return res
         .status(409)
         .json({
@@ -3208,25 +3030,19 @@ app.get(
           status:
             job.status
         });
-
     }
-
 
     const outputPath =
       job.output_path;
 
-
     if (!outputPath) {
-
       return res
         .status(404)
         .json({
           error:
             'Output path missing'
         });
-
     }
-
 
     try {
 
@@ -3242,18 +3058,14 @@ app.get(
           error:
             'Output file not found'
         });
-
     }
-
 
     return res.download(
       outputPath,
       `midnight-files-${job.job_id}.mp4`
     );
-
   }
 );
-
 
 // ============================================================
 // ROOT
@@ -3287,10 +3099,8 @@ app.get(
           'GET /download/:jobId'
       }
     });
-
   }
 );
-
 
 // ============================================================
 // START
@@ -3326,6 +3136,10 @@ ensureDirectories()
           );
 
           console.log(
+            'Audio: opening silence + narration + ending silence'
+          );
+
+          console.log(
             'Default: 1280x720 / 24fps'
           );
 
@@ -3334,16 +3148,10 @@ ensureDirectories()
           );
 
           console.log(
-            'Presentation overlays: enabled'
-          );
-
-          console.log(
             '============================================'
           );
-
         }
       );
-
     }
   )
   .catch(
@@ -3355,6 +3163,5 @@ ensureDirectories()
       );
 
       process.exit(1);
-
     }
   );
