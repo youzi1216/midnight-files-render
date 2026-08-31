@@ -24,11 +24,9 @@ const PORT =
   Number(process.env.PORT || 3000);
 
 const SERVER_VERSION =
-  'midnight-files-render-v1.1.0';
+  'midnight-files-render-v2.0.0';
 
-const HARD_TIMEOUT_MINUTES =
-  35;
-
+const HARD_TIMEOUT_MINUTES = 35;
 const HARD_TIMEOUT_MS =
   HARD_TIMEOUT_MINUTES * 60 * 1000;
 
@@ -39,19 +37,12 @@ const ROOT_DIR =
   );
 
 const JOBS_DIR =
-  path.join(
-    ROOT_DIR,
-    'jobs'
-  );
+  path.join(ROOT_DIR, 'jobs');
 
 const OUTPUT_DIR =
-  path.join(
-    ROOT_DIR,
-    'outputs'
-  );
+  path.join(ROOT_DIR, 'outputs');
 
-const jobs =
-  new Map();
+const jobs = new Map();
 
 // ============================================================
 // HELPERS
@@ -68,12 +59,8 @@ function cleanText(value) {
   return String(value).trim();
 }
 
-function safeNumber(
-  value,
-  fallback
-) {
-  const n =
-    Number(value);
+function safeNumber(value, fallback) {
+  const n = Number(value);
 
   return Number.isFinite(n)
     ? n
@@ -136,21 +123,17 @@ function escapeDrawtext(value) {
 async function ensureDirectories() {
   await fsp.mkdir(
     JOBS_DIR,
-    {
-      recursive: true
-    }
+    { recursive: true }
   );
 
   await fsp.mkdir(
     OUTPUT_DIR,
-    {
-      recursive: true
-    }
+    { recursive: true }
   );
 }
 
 // ============================================================
-// JOB STATE
+// JOB
 // ============================================================
 
 function publicJob(job) {
@@ -159,26 +142,14 @@ function publicJob(job) {
   }
 
   return {
-    job_id:
-      job.job_id,
+    job_id: job.job_id,
+    status: job.status,
+    progress: job.progress,
+    current_step: job.current_step,
 
-    status:
-      job.status,
-
-    progress:
-      job.progress,
-
-    current_step:
-      job.current_step,
-
-    created_at:
-      job.created_at,
-
-    started_at:
-      job.started_at,
-
-    completed_at:
-      job.completed_at,
+    created_at: job.created_at,
+    started_at: job.started_at,
+    completed_at: job.completed_at,
 
     elapsed_seconds:
       job.started_at
@@ -209,6 +180,9 @@ function publicJob(job) {
 
     ending_duration:
       job.ending_duration ?? null,
+
+    scene_timeline:
+      job.scene_timeline ?? null,
 
     output_size_bytes:
       job.output_size_bytes ?? null,
@@ -241,21 +215,14 @@ function publicJob(job) {
   };
 }
 
-function updateJob(
-  jobId,
-  patch
-) {
-  const job =
-    jobs.get(jobId);
+function updateJob(jobId, patch) {
+  const job = jobs.get(jobId);
 
   if (!job) {
     return;
   }
 
-  Object.assign(
-    job,
-    patch
-  );
+  Object.assign(job, patch);
 }
 
 // ============================================================
@@ -268,10 +235,7 @@ function runProcess(
   options = {}
 ) {
   return new Promise(
-    (
-      resolve,
-      reject
-    ) => {
+    (resolve, reject) => {
 
       const child =
         spawn(
@@ -293,17 +257,11 @@ function runProcess(
       child.stdout.on(
         'data',
         chunk => {
-          stdout +=
-            chunk.toString();
+          stdout += chunk.toString();
 
-          if (
-            stdout.length >
-            20000
-          ) {
+          if (stdout.length > 20000) {
             stdout =
-              stdout.slice(
-                -20000
-              );
+              stdout.slice(-20000);
           }
         }
       );
@@ -311,17 +269,11 @@ function runProcess(
       child.stderr.on(
         'data',
         chunk => {
-          stderr +=
-            chunk.toString();
+          stderr += chunk.toString();
 
-          if (
-            stderr.length >
-            30000
-          ) {
+          if (stderr.length > 30000) {
             stderr =
-              stderr.slice(
-                -30000
-              );
+              stderr.slice(-30000);
           }
         }
       );
@@ -335,9 +287,7 @@ function runProcess(
         'close',
         code => {
 
-          if (
-            code === 0
-          ) {
+          if (code === 0) {
             resolve({
               stdout,
               stderr
@@ -346,18 +296,11 @@ function runProcess(
             return;
           }
 
-          const error =
+          reject(
             new Error(
               `${command} exited with code ${code}\n${stderr}`
-            );
-
-          error.exitCode =
-            code;
-
-          error.stderr =
-            stderr;
-
-          reject(error);
+            )
+          );
         }
       );
     }
@@ -394,12 +337,11 @@ async function downloadFile({
       await fetch(
         cleanUrl,
         {
-          redirect:
-            'follow',
+          redirect: 'follow',
 
           headers: {
             'User-Agent':
-              'Midnight-Files-Render/1.1'
+              'Midnight-Files-Render/2.0'
           }
         }
       );
@@ -435,9 +377,6 @@ async function downloadFile({
 
     wrapped.failedUrl =
       cleanUrl;
-
-    wrapped.httpStatus =
-      response.status;
 
     wrapped.sceneNumber =
       sceneNumber;
@@ -484,18 +423,12 @@ async function downloadFile({
     throw wrapped;
   }
 
-  const arrayBuffer =
-    await response.arrayBuffer();
-
   const buffer =
     Buffer.from(
-      arrayBuffer
+      await response.arrayBuffer()
     );
 
-  if (
-    buffer.length <
-    100
-  ) {
+  if (buffer.length < 100) {
 
     const wrapped =
       new Error(
@@ -523,11 +456,8 @@ async function downloadFile({
   );
 
   return {
-    bytes:
-      buffer.length,
-
-    content_type:
-      contentType
+    bytes: buffer.length,
+    content_type: contentType
   };
 }
 
@@ -596,15 +526,12 @@ async function detectFont() {
   ].filter(Boolean);
 
   for (
-    const candidate
-    of candidates
+    const candidate of candidates
   ) {
 
     try {
 
-      await fsp.access(
-        candidate
-      );
+      await fsp.access(candidate);
 
       return candidate;
 
@@ -669,45 +596,40 @@ function drawTextFilter({
 // SETTINGS
 // ============================================================
 
-function normalizeRenderSettings(
-  input
-) {
+function normalizeRenderSettings(input) {
 
   const source =
     safeObject(input);
 
-  const width =
-    Math.max(
-      640,
-      Math.min(
-        1920,
-        Math.round(
-          safeNumber(
-            source.width,
-            1280
-          )
-        )
-      )
-    );
-
-  const height =
-    Math.max(
-      360,
-      Math.min(
-        1080,
-        Math.round(
-          safeNumber(
-            source.height,
-            720
-          )
-        )
-      )
-    );
-
   return {
-    width,
 
-    height,
+    width:
+      Math.max(
+        640,
+        Math.min(
+          1920,
+          Math.round(
+            safeNumber(
+              source.width,
+              1280
+            )
+          )
+        )
+      ),
+
+    height:
+      Math.max(
+        360,
+        Math.min(
+          1080,
+          Math.round(
+            safeNumber(
+              source.height,
+              720
+            )
+          )
+        )
+      ),
 
     fps:
       Math.max(
@@ -744,7 +666,7 @@ function normalizeRenderSettings(
           Math.round(
             safeNumber(
               source.crf,
-              23
+              24
             )
           )
         )
@@ -767,7 +689,9 @@ function normalizeRenderSettings(
     audio_bitrate:
       cleanText(
         source.audio_bitrate
-      ) || '160k',
+      )
+      ||
+      '160k',
 
     video_codec:
       'libx264',
@@ -776,12 +700,42 @@ function normalizeRenderSettings(
       'aac',
 
     pixel_format:
-      'yuv420p'
+      'yuv420p',
+
+    timing_mode:
+      cleanText(
+        source.timing_mode
+      )
+      ||
+      'audio_driven_scene_weighted',
+
+    minimum_shot_duration:
+      Math.max(
+        2.5,
+        safeNumber(
+          source.minimum_shot_duration,
+          3.5
+        )
+      ),
+
+    maximum_shot_duration:
+      Math.max(
+        10,
+        safeNumber(
+          source.maximum_shot_duration,
+          30
+        )
+      )
   };
 }
 
+// ============================================================
+// PRESENTATION
+// ============================================================
+
 function normalizePresentation(
-  input
+  input,
+  project = {}
 ) {
 
   const source =
@@ -815,6 +769,7 @@ function normalizePresentation(
   return {
 
     opening_disclaimer: {
+
       enabled:
         safeBoolean(
           opening.enabled,
@@ -836,17 +791,28 @@ function normalizePresentation(
       line_1:
         cleanText(
           opening.line_1
-        ) ||
+        )
+        ||
+        cleanText(
+          project.opening_disclaimer
+        )
+        ||
         '本集內容根據公開案件資料整理',
 
       line_2:
         cleanText(
           opening.line_2
-        ) ||
+        )
+        ||
+        cleanText(
+          project.reconstruction_disclaimer
+        )
+        ||
         '部分畫面為 AI 情境重建，非事件原始影像'
     },
 
     reconstruction_overlay: {
+
       enabled:
         safeBoolean(
           reconstruction.enabled,
@@ -856,11 +822,13 @@ function normalizePresentation(
       text:
         cleanText(
           reconstruction.text
-        ) ||
+        )
+        ||
         'AI 情境重建'
     },
 
     info_card: {
+
       enabled:
         safeBoolean(
           info.enabled,
@@ -893,6 +861,7 @@ function normalizePresentation(
     },
 
     theory_overlay: {
+
       enabled:
         safeBoolean(
           theory.enabled,
@@ -902,17 +871,20 @@ function normalizePresentation(
       default_title:
         cleanText(
           theory.default_title
-        ) ||
-        '可能性分析',
+        )
+        ||
+        '官方調查推測',
 
       default_disclaimer:
         cleanText(
           theory.default_disclaimer
-        ) ||
-        '以上為可能性分析，並非案件定論'
+        )
+        ||
+        '以下為官方調查認為最可能的事故解釋，並非目擊證實的完整經過'
     },
 
     ending_card: {
+
       enabled:
         safeBoolean(
           ending.enabled,
@@ -934,22 +906,222 @@ function normalizePresentation(
       title:
         cleanText(
           ending.title
-        ) ||
-        'YUBA COUNTY FIVE',
+        )
+        ||
+        cleanText(
+          project.ending_title
+        )
+        ||
+        'FLANNAN ISLES',
 
       subtitle:
         cleanText(
           ending.subtitle
-        ) ||
-        '1978',
+        )
+        ||
+        cleanText(
+          project.ending_subtitle
+        )
+        ||
+        '1900',
 
       footer:
         cleanText(
           ending.footer
-        ) ||
-        '案件至今仍留下未解疑點'
+        )
+        ||
+        cleanText(
+          project.ending_footer
+        )
+        ||
+        '三名燈塔守衛失蹤，確切經過至今無法直接證實'
     }
   };
+}
+
+// ============================================================
+// BUILD SCENE TIMELINE
+// ============================================================
+
+function buildSceneTimeline({
+  scenes,
+  narrationDuration,
+  settings
+}) {
+
+  const sceneMap =
+    new Map();
+
+  for (
+    const visual of scenes
+  ) {
+
+    const sceneNumber =
+      safeNumber(
+        visual.scene_number,
+        null
+      );
+
+    if (
+      !Number.isInteger(
+        sceneNumber
+      )
+    ) {
+      continue;
+    }
+
+    if (
+      !sceneMap.has(
+        sceneNumber
+      )
+    ) {
+
+      sceneMap.set(
+        sceneNumber,
+        {
+          scene_number:
+            sceneNumber,
+
+          narration:
+            cleanText(
+              visual.narration
+            ),
+
+          visuals: []
+        }
+      );
+    }
+
+    sceneMap
+      .get(sceneNumber)
+      .visuals
+      .push(visual);
+  }
+
+  const storyScenes =
+    [...sceneMap.values()]
+      .sort(
+        (a, b) =>
+          a.scene_number -
+          b.scene_number
+      );
+
+  if (!storyScenes.length) {
+    throw new Error(
+      'Unable to build scene timeline'
+    );
+  }
+
+  const totalWeight =
+    storyScenes.reduce(
+      (sum, scene) =>
+        sum +
+        Math.max(
+          1,
+          scene.narration.length
+        ),
+      0
+    );
+
+  let allocated = 0;
+
+  const timeline =
+    storyScenes.map(
+      (scene, index) => {
+
+        let sceneDuration;
+
+        if (
+          index ===
+          storyScenes.length - 1
+        ) {
+
+          sceneDuration =
+            Math.max(
+              0.1,
+              narrationDuration -
+              allocated
+            );
+
+        } else {
+
+          sceneDuration =
+            narrationDuration *
+            (
+              Math.max(
+                1,
+                scene.narration.length
+              ) /
+              totalWeight
+            );
+
+          allocated +=
+            sceneDuration;
+        }
+
+        const shotCount =
+          Math.max(
+            1,
+            scene.visuals.length
+          );
+
+        const shotDuration =
+          sceneDuration /
+          shotCount;
+
+        return {
+          scene_number:
+            scene.scene_number,
+
+          narration_chars:
+            scene.narration.length,
+
+          duration:
+            sceneDuration,
+
+          shot_count:
+            shotCount,
+
+          shot_duration:
+            shotDuration
+        };
+      }
+    );
+
+  const calculatedTotal =
+    timeline.reduce(
+      (sum, scene) =>
+        sum +
+        scene.duration,
+      0
+    );
+
+  const difference =
+    narrationDuration -
+    calculatedTotal;
+
+  if (
+    timeline.length &&
+    Math.abs(difference) >
+      0.0001
+  ) {
+    timeline[
+      timeline.length - 1
+    ].duration +=
+      difference;
+
+    timeline[
+      timeline.length - 1
+    ].shot_duration =
+      timeline[
+        timeline.length - 1
+      ].duration /
+      timeline[
+        timeline.length - 1
+      ].shot_count;
+  }
+
+  return timeline;
 }
 
 // ============================================================
@@ -962,9 +1134,7 @@ async function createSilence({
   settings
 }) {
 
-  if (
-    duration <= 0
-  ) {
+  if (duration <= 0) {
     return;
   }
 
@@ -1288,10 +1458,13 @@ async function createVisualSegment({
     );
 
   filters.push(
-    `zoompan=z='min(zoom+0.00008,1.02)':d=${totalFrames}:s=${width}x${height}:fps=${fps}`
+    `zoompan=z='min(zoom+0.00008,1.035)':d=${totalFrames}:s=${width}x${height}:fps=${fps}`
   );
 
+  // ----------------------------------------------------------
   // AI reconstruction
+  // ----------------------------------------------------------
+
   if (
     presentationSettings
       .reconstruction_overlay
@@ -1305,15 +1478,17 @@ async function createVisualSegment({
         p.reconstruction_label
       )
       ||
+      cleanText(
+        visual.reconstruction_label
+      )
+      ||
       presentationSettings
         .reconstruction_overlay
         .text;
 
     filters.push(
       drawTextFilter({
-        text:
-          label,
-
+        text: label,
         fontFile,
 
         fontSize:
@@ -1339,7 +1514,10 @@ async function createVisualSegment({
     );
   }
 
+  // ----------------------------------------------------------
   // Date / Location
+  // ----------------------------------------------------------
+
   if (
     presentationSettings
       .info_card
@@ -1350,8 +1528,14 @@ async function createVisualSegment({
       presentationSettings
         .info_card
         .show_date
-        ? cleanText(
-            p.date_card
+        ? (
+            cleanText(
+              p.date_card
+            )
+            ||
+            cleanText(
+              visual.date_card
+            )
           )
         : '';
 
@@ -1359,8 +1543,14 @@ async function createVisualSegment({
       presentationSettings
         .info_card
         .show_location
-        ? cleanText(
-            p.location_card
+        ? (
+            cleanText(
+              p.location_card
+            )
+            ||
+            cleanText(
+              visual.location_card
+            )
           )
         : '';
 
@@ -1376,11 +1566,10 @@ async function createVisualSegment({
       `between(t,0,${maxDuration})`;
 
     if (date) {
+
       filters.push(
         drawTextFilter({
-          text:
-            date,
-
+          text: date,
           fontFile,
 
           fontSize:
@@ -1388,11 +1577,8 @@ async function createVisualSegment({
               height * 0.041
             ),
 
-          x:
-            '28',
-
-          y:
-            'h-112',
+          x: '28',
+          y: 'h-112',
 
           boxColor:
             'black@0.52',
@@ -1406,11 +1592,10 @@ async function createVisualSegment({
     }
 
     if (location) {
+
       filters.push(
         drawTextFilter({
-          text:
-            location,
-
+          text: location,
           fontFile,
 
           fontSize:
@@ -1418,11 +1603,8 @@ async function createVisualSegment({
               height * 0.028
             ),
 
-          x:
-            '28',
-
-          y:
-            'h-60',
+          x: '28',
+          y: 'h-60',
 
           fontColor:
             'white@0.84',
@@ -1439,21 +1621,42 @@ async function createVisualSegment({
     }
   }
 
+  // ----------------------------------------------------------
   // Theory
+  // ----------------------------------------------------------
+
+  const sceneType =
+    cleanText(
+      p.scene_type
+    )
+    ||
+    cleanText(
+      visual.scene_type
+    );
+
+  const theoryLabel =
+    cleanText(
+      p.theory_label
+    )
+    ||
+    cleanText(
+      visual.theory_label
+    );
+
   if (
     presentationSettings
       .theory_overlay
       .enabled
     &&
-    cleanText(
-      p.scene_type
-    ) === 'theory'
+    (
+      sceneType === 'theory'
+      ||
+      theoryLabel
+    )
   ) {
 
     const theoryTitle =
-      cleanText(
-        p.theory_label
-      )
+      theoryLabel
       ||
       presentationSettings
         .theory_overlay
@@ -1462,6 +1665,10 @@ async function createVisualSegment({
     const theoryDisclaimer =
       cleanText(
         p.disclaimer
+      )
+      ||
+      cleanText(
+        visual.disclaimer
       )
       ||
       presentationSettings
@@ -1480,11 +1687,8 @@ async function createVisualSegment({
             height * 0.035
           ),
 
-        x:
-          '28',
-
-        y:
-          '28',
+        x: '28',
+        y: '28',
 
         boxColor:
           'black@0.50',
@@ -1730,7 +1934,7 @@ async function concatAudio({
 }
 
 // ============================================================
-// BUILD FINAL AUDIO TIMELINE
+// FINAL AUDIO
 // ============================================================
 
 async function buildFinalAudioTimeline({
@@ -1744,10 +1948,7 @@ async function buildFinalAudioTimeline({
 
   const parts = [];
 
-  // Opening silence
-  if (
-    openingDuration > 0
-  ) {
+  if (openingDuration > 0) {
 
     const openingSilence =
       path.join(
@@ -1770,15 +1971,11 @@ async function buildFinalAudioTimeline({
     );
   }
 
-  // Narration
   parts.push(
     narrationPath
   );
 
-  // Ending silence
-  if (
-    endingDuration > 0
-  ) {
+  if (endingDuration > 0) {
 
     const endingSilence =
       path.join(
@@ -1802,13 +1999,9 @@ async function buildFinalAudioTimeline({
   }
 
   await concatAudio({
-    files:
-      parts,
-
+    files: parts,
     destination,
-
     workDir,
-
     settings
   });
 }
@@ -1901,52 +2094,65 @@ async function processRender(
     updateJob(
       jobId,
       {
-        status:
-          'processing',
-
-        started_at:
-          nowIso(),
-
-        progress:
-          1,
-
-        current_step:
-          'initializing'
+        status: 'processing',
+        started_at: nowIso(),
+        progress: 1,
+        current_step: 'initializing'
       }
     );
 
     await Promise.all([
       fsp.mkdir(
         imageDir,
-        {
-          recursive: true
-        }
+        { recursive: true }
       ),
 
       fsp.mkdir(
         audioDir,
-        {
-          recursive: true
-        }
+        { recursive: true }
       ),
 
       fsp.mkdir(
         segmentDir,
-        {
-          recursive: true
-        }
+        { recursive: true }
       )
     ]);
 
     const scenes =
       safeArray(
         payload.scenes
-      );
+      )
+        .slice()
+        .sort(
+          (a, b) =>
+            safeNumber(
+              a.render_index,
+              0
+            )
+            -
+            safeNumber(
+              b.render_index,
+              0
+            )
+        );
 
     const audioParts =
       safeArray(
         payload.audio_parts
-      );
+      )
+        .slice()
+        .sort(
+          (a, b) =>
+            safeNumber(
+              a.part_index,
+              0
+            )
+            -
+            safeNumber(
+              b.part_index,
+              0
+            )
+        );
 
     if (!scenes.length) {
       throw new Error(
@@ -1965,9 +2171,15 @@ async function processRender(
         payload.render_settings
       );
 
+    const project =
+      safeObject(
+        payload.project
+      );
+
     const presentation =
       normalizePresentation(
-        payload.presentation_settings
+        payload.presentation_settings,
+        project
       );
 
     const openingDuration =
@@ -2005,13 +2217,14 @@ async function processRender(
       }
     );
 
-    // Font
+    // --------------------------------------------------------
+    // FONT
+    // --------------------------------------------------------
+
     updateJob(
       jobId,
       {
-        progress:
-          2,
-
+        progress: 2,
         current_step:
           'checking_font'
       }
@@ -2026,7 +2239,10 @@ async function processRender(
       );
     }
 
-    // Images
+    // --------------------------------------------------------
+    // IMAGES
+    // --------------------------------------------------------
+
     const imagePaths = [];
 
     for (
@@ -2116,8 +2332,12 @@ async function processRender(
       );
     }
 
-    // Audio
+    // --------------------------------------------------------
+    // AUDIO
+    // --------------------------------------------------------
+
     const audioPaths = [];
+    const audioPartDurations = [];
 
     for (
       let index = 0;
@@ -2190,18 +2410,34 @@ async function processRender(
         partIndex
       });
 
+      const duration =
+        await getMediaDuration(
+          destination
+        );
+
       audioPaths.push(
         destination
       );
+
+      audioPartDurations.push({
+        part_index:
+          partIndex,
+
+        duration:
+          Number(
+            duration.toFixed(3)
+          )
+      });
     }
 
-    // Narration concat
+    // --------------------------------------------------------
+    // CONCAT NARRATION
+    // --------------------------------------------------------
+
     updateJob(
       jobId,
       {
-        progress:
-          25,
-
+        progress: 25,
         current_step:
           'concatenating_narration'
       }
@@ -2240,14 +2476,63 @@ async function processRender(
       }
     );
 
-    // Final audio timeline:
-    // silence + narration + silence
+    // --------------------------------------------------------
+    // BUILD SCENE TIMELINE
+    // --------------------------------------------------------
+
     updateJob(
       jobId,
       {
-        progress:
-          27,
+        progress: 26,
+        current_step:
+          'building_scene_timeline'
+      }
+    );
 
+    const sceneTimeline =
+      buildSceneTimeline({
+        scenes,
+        narrationDuration,
+        settings
+      });
+
+    updateJob(
+      jobId,
+      {
+        scene_timeline:
+          sceneTimeline.map(
+            item => ({
+              scene_number:
+                item.scene_number,
+
+              narration_chars:
+                item.narration_chars,
+
+              duration:
+                Number(
+                  item.duration.toFixed(3)
+                ),
+
+              shot_count:
+                item.shot_count,
+
+              shot_duration:
+                Number(
+                  item.shot_duration.toFixed(3)
+                )
+            })
+          )
+      }
+    );
+
+    // --------------------------------------------------------
+    // FINAL AUDIO
+    // --------------------------------------------------------
+
+    updateJob(
+      jobId,
+      {
+        progress: 27,
         current_step:
           'building_audio_timeline'
       }
@@ -2290,17 +2575,12 @@ async function processRender(
       }
     );
 
-    // Narration only determines visual scene duration
-    const baseVisualDuration =
-      Math.max(
-        2.5,
-        narrationDuration /
-        scenes.length
-      );
-
     const videoSegments = [];
 
-    // Opening
+    // --------------------------------------------------------
+    // OPENING
+    // --------------------------------------------------------
+
     if (
       presentation
         .opening_disclaimer
@@ -2310,9 +2590,7 @@ async function processRender(
       updateJob(
         jobId,
         {
-          progress:
-            29,
-
+          progress: 29,
           current_step:
             'rendering_opening_disclaimer'
         }
@@ -2329,9 +2607,7 @@ async function processRender(
           openingPath,
 
         settings,
-
         presentation,
-
         fontFile
       });
 
@@ -2340,7 +2616,10 @@ async function processRender(
       );
     }
 
-    // Visuals
+    // --------------------------------------------------------
+    // VISUALS
+    // --------------------------------------------------------
+
     for (
       let index = 0;
       index < scenes.length;
@@ -2350,32 +2629,43 @@ async function processRender(
       const visual =
         scenes[index] ?? {};
 
-      const p =
-        safeObject(
-          visual.presentation
+      const sceneNumber =
+        safeNumber(
+          visual.scene_number,
+          null
         );
+
+      const timeline =
+        sceneTimeline.find(
+          item =>
+            item.scene_number ===
+            sceneNumber
+        );
+
+      if (!timeline) {
+
+        const error =
+          new Error(
+            `No timeline found for Scene ${sceneNumber}`
+          );
+
+        error.sceneNumber =
+          sceneNumber;
+
+        throw error;
+      }
 
       let duration =
-        baseVisualDuration;
+        timeline.shot_duration;
 
-      const recommended =
-        safeNumber(
-          p.recommended_visual_duration,
-          0
+      duration =
+        Math.max(
+          settings.minimum_shot_duration,
+          Math.min(
+            settings.maximum_shot_duration,
+            duration
+          )
         );
-
-      if (
-        cleanText(
-          p.scene_type
-        ) === 'hook'
-        &&
-        recommended >= 2.5
-        &&
-        recommended <= 7
-      ) {
-        duration =
-          recommended;
-      }
 
       updateJob(
         jobId,
@@ -2427,7 +2717,10 @@ async function processRender(
       );
     }
 
-    // Ending
+    // --------------------------------------------------------
+    // ENDING
+    // --------------------------------------------------------
+
     if (
       presentation
         .ending_card
@@ -2437,9 +2730,7 @@ async function processRender(
       updateJob(
         jobId,
         {
-          progress:
-            84,
-
+          progress: 84,
           current_step:
             'rendering_ending_card'
         }
@@ -2456,9 +2747,7 @@ async function processRender(
           endingPath,
 
         settings,
-
         presentation,
-
         fontFile
       });
 
@@ -2467,13 +2756,14 @@ async function processRender(
       );
     }
 
-    // Concat video
+    // --------------------------------------------------------
+    // CONCAT VIDEO
+    // --------------------------------------------------------
+
     updateJob(
       jobId,
       {
-        progress:
-          87,
-
+        progress: 87,
         current_step:
           'concatenating_video'
       }
@@ -2497,13 +2787,14 @@ async function processRender(
       settings
     });
 
-    // Final mux
+    // --------------------------------------------------------
+    // FINAL MUX
+    // --------------------------------------------------------
+
     updateJob(
       jobId,
       {
-        progress:
-          92,
-
+        progress: 92,
         current_step:
           'muxing_final_video'
       }
@@ -2533,10 +2824,7 @@ async function processRender(
         outputPath
       );
 
-    if (
-      stat.size <
-      10000
-    ) {
+    if (stat.size < 10000) {
       throw new Error(
         `Final output is unexpectedly small: ${stat.size} bytes`
       );
@@ -2545,26 +2833,13 @@ async function processRender(
     updateJob(
       jobId,
       {
-        status:
-          'completed',
-
-        progress:
-          100,
-
-        current_step:
-          'completed',
-
-        completed_at:
-          nowIso(),
-
-        output_path:
-          outputPath,
-
-        output_size_bytes:
-          stat.size,
-
-        error:
-          null
+        status: 'completed',
+        progress: 100,
+        current_step: 'completed',
+        completed_at: nowIso(),
+        output_path: outputPath,
+        output_size_bytes: stat.size,
+        error: null
       }
     );
 
@@ -2573,11 +2848,8 @@ async function processRender(
       await fsp.rm(
         workDir,
         {
-          recursive:
-            true,
-
-          force:
-            true
+          recursive: true,
+          force: true
         }
       );
 
@@ -2588,14 +2860,9 @@ async function processRender(
     updateJob(
       jobId,
       {
-        status:
-          'failed',
-
-        current_step:
-          'failed',
-
-        completed_at:
-          nowIso(),
+        status: 'failed',
+        current_step: 'failed',
+        completed_at: nowIso(),
 
         error:
           cleanText(
@@ -2642,10 +2909,7 @@ async function processRenderWithTimeout(
 
   const timeoutPromise =
     new Promise(
-      (
-        _resolve,
-        reject
-      ) => {
+      (_resolve, reject) => {
 
         timeoutHandle =
           setTimeout(
@@ -2664,7 +2928,6 @@ async function processRenderWithTimeout(
             },
             HARD_TIMEOUT_MS
           );
-
       }
     );
 
@@ -2684,22 +2947,16 @@ async function processRenderWithTimeout(
     updateJob(
       jobId,
       {
-        status:
-          'failed',
-
-        current_step:
-          'failed',
-
-        completed_at:
-          nowIso(),
+        status: 'failed',
+        current_step: 'failed',
+        completed_at: nowIso(),
 
         error:
           cleanText(
             error.message
           ),
 
-        timeout:
-          true
+        timeout: true
       }
     );
 
@@ -2727,8 +2984,7 @@ app.get(
       await ensureDirectories();
 
       res.json({
-        ok:
-          true,
+        ok: true,
 
         service:
           'Midnight Files Render Server',
@@ -2738,6 +2994,12 @@ app.get(
 
         render_mode:
           'segment-render-concat',
+
+        timing_mode:
+          'audio-driven-scene-weighted',
+
+        scene_weight:
+          'narration-character-count',
 
         audio_timeline:
           'opening-silence + narration + ending-silence',
@@ -2752,20 +3014,11 @@ app.get(
           HARD_TIMEOUT_MINUTES,
 
         presentation_support: {
-          opening_disclaimer:
-            true,
-
-          reconstruction_label:
-            true,
-
-          date_location:
-            true,
-
-          theory_disclaimer:
-            true,
-
-          ending_card:
-            true
+          opening_disclaimer: true,
+          reconstruction_label: true,
+          date_location: true,
+          theory_disclaimer: true,
+          ending_card: true
         },
 
         time:
@@ -2777,11 +3030,8 @@ app.get(
       res
         .status(500)
         .json({
-          ok:
-            false,
-
-          error:
-            error.message
+          ok: false,
+          error: error.message
         });
     }
   }
@@ -2837,26 +3087,15 @@ app.post(
         createJobId();
 
       const job = {
-        job_id:
-          jobId,
+        job_id: jobId,
 
-        status:
-          'queued',
+        status: 'queued',
+        progress: 0,
+        current_step: 'queued',
 
-        progress:
-          0,
-
-        current_step:
-          'queued',
-
-        created_at:
-          nowIso(),
-
-        started_at:
-          null,
-
-        completed_at:
-          null,
+        created_at: nowIso(),
+        started_at: null,
+        completed_at: null,
 
         total_visuals:
           scenes.length,
@@ -2864,41 +3103,25 @@ app.post(
         total_audio_parts:
           audioParts.length,
 
-        narration_duration:
-          null,
+        narration_duration: null,
+        final_audio_duration: null,
 
-        final_audio_duration:
-          null,
+        opening_duration: null,
+        ending_duration: null,
 
-        opening_duration:
-          null,
+        scene_timeline: null,
 
-        ending_duration:
-          null,
+        output_path: null,
+        output_size_bytes: null,
 
-        output_path:
-          null,
+        error: null,
 
-        output_size_bytes:
-          null,
+        failed_scene_number: null,
+        failed_shot_index: null,
+        failed_audio_part: null,
+        failed_url: null,
 
-        error:
-          null,
-
-        failed_scene_number:
-          null,
-
-        failed_shot_index:
-          null,
-
-        failed_audio_part:
-          null,
-
-        failed_url:
-          null,
-
-        timeout:
-          false
+        timeout: false
       };
 
       jobs.set(
@@ -2926,11 +3149,8 @@ app.post(
       return res
         .status(202)
         .json({
-          job_id:
-            jobId,
-
-          status:
-            'queued',
+          job_id: jobId,
+          status: 'queued',
 
           status_url:
             `/status/${jobId}`,
@@ -2985,9 +3205,7 @@ app.get(
     }
 
     return res.json(
-      publicJob(
-        job
-      )
+      publicJob(job)
     );
   }
 );
@@ -3133,6 +3351,14 @@ ensureDirectories()
 
           console.log(
             'Mode: segment-render-concat'
+          );
+
+          console.log(
+            'Timing: audio-driven-scene-weighted'
+          );
+
+          console.log(
+            'Scene weight: narration character count'
           );
 
           console.log(
