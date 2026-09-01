@@ -24,11 +24,40 @@ const PORT =
   Number(process.env.PORT || 3000);
 
 const SERVER_VERSION =
-  'midnight-files-render-v2.0.0';
+  'midnight-files-render-v2.1.0';
 
-const HARD_TIMEOUT_MINUTES = 35;
+const HARD_TIMEOUT_MINUTES =
+  35;
+
 const HARD_TIMEOUT_MS =
-  HARD_TIMEOUT_MINUTES * 60 * 1000;
+  HARD_TIMEOUT_MINUTES *
+  60 *
+  1000;
+
+const EXPECTED_SCENES =
+  16;
+
+const EXPECTED_SHOTS_PER_SCENE =
+  2;
+
+const EXPECTED_VISUALS =
+  EXPECTED_SCENES *
+  EXPECTED_SHOTS_PER_SCENE;
+
+const MIN_AUDIO_PARTS =
+  3;
+
+const MAX_AUDIO_PARTS =
+  6;
+
+const DOWNLOAD_MAX_ATTEMPTS =
+  4;
+
+const DOWNLOAD_TIMEOUT_MS =
+  90000;
+
+const MEDIA_DURATION_TOLERANCE_SECONDS =
+  1.25;
 
 const ROOT_DIR =
   path.join(
@@ -37,18 +66,27 @@ const ROOT_DIR =
   );
 
 const JOBS_DIR =
-  path.join(ROOT_DIR, 'jobs');
+  path.join(
+    ROOT_DIR,
+    'jobs'
+  );
 
 const OUTPUT_DIR =
-  path.join(ROOT_DIR, 'outputs');
+  path.join(
+    ROOT_DIR,
+    'outputs'
+  );
 
-const jobs = new Map();
+const jobs =
+  new Map();
+
 
 // ============================================================
 // HELPERS
 // ============================================================
 
 function cleanText(value) {
+
   if (
     value === null ||
     value === undefined
@@ -56,21 +94,31 @@ function cleanText(value) {
     return '';
   }
 
-  return String(value).trim();
+  return String(value)
+    .replace(/^\uFEFF/, '')
+    .trim();
 }
 
-function safeNumber(value, fallback) {
-  const n = Number(value);
+
+function safeNumber(
+  value,
+  fallback
+) {
+
+  const n =
+    Number(value);
 
   return Number.isFinite(n)
     ? n
     : fallback;
 }
 
+
 function safeBoolean(
   value,
   fallback = false
 ) {
+
   if (
     value === true ||
     value === false
@@ -81,7 +129,9 @@ function safeBoolean(
   return fallback;
 }
 
+
 function safeObject(value) {
+
   if (
     value &&
     typeof value === 'object' &&
@@ -93,21 +143,52 @@ function safeObject(value) {
   return {};
 }
 
+
 function safeArray(value) {
+
   return Array.isArray(value)
     ? value
     : [];
 }
 
+
 function nowIso() {
-  return new Date().toISOString();
+
+  return new Date()
+    .toISOString();
 }
+
 
 function createJobId() {
-  return crypto.randomUUID();
+
+  return crypto
+    .randomUUID();
 }
 
+
+function sleep(ms) {
+
+  return new Promise(
+    resolve =>
+      setTimeout(
+        resolve,
+        ms
+      )
+  );
+}
+
+
+function roundDuration(value) {
+
+  return Number(
+    Number(value)
+      .toFixed(6)
+  );
+}
+
+
 function escapeDrawtext(value) {
+
   return cleanText(value)
     .replace(/\\/g, '\\\\')
     .replace(/:/g, '\\:')
@@ -116,40 +197,61 @@ function escapeDrawtext(value) {
     .replace(/\n/g, ' ');
 }
 
+
 // ============================================================
 // DIRECTORIES
 // ============================================================
 
 async function ensureDirectories() {
+
   await fsp.mkdir(
     JOBS_DIR,
-    { recursive: true }
+    {
+      recursive: true
+    }
   );
 
   await fsp.mkdir(
     OUTPUT_DIR,
-    { recursive: true }
+    {
+      recursive: true
+    }
   );
 }
 
+
 // ============================================================
-// JOB
+// JOB HELPERS
 // ============================================================
 
 function publicJob(job) {
+
   if (!job) {
     return null;
   }
 
   return {
-    job_id: job.job_id,
-    status: job.status,
-    progress: job.progress,
-    current_step: job.current_step,
 
-    created_at: job.created_at,
-    started_at: job.started_at,
-    completed_at: job.completed_at,
+    job_id:
+      job.job_id,
+
+    status:
+      job.status,
+
+    progress:
+      job.progress,
+
+    current_step:
+      job.current_step,
+
+    created_at:
+      job.created_at,
+
+    started_at:
+      job.started_at,
+
+    completed_at:
+      job.completed_at,
 
     elapsed_seconds:
       job.started_at
@@ -159,7 +261,8 @@ function publicJob(job) {
               new Date(
                 job.started_at
               ).getTime()
-            ) / 1000
+            ) /
+            1000
           )
         : 0,
 
@@ -170,40 +273,68 @@ function publicJob(job) {
       job.total_audio_parts,
 
     narration_duration:
-      job.narration_duration ?? null,
+      job.narration_duration ??
+      null,
 
     final_audio_duration:
-      job.final_audio_duration ?? null,
+      job.final_audio_duration ??
+      null,
+
+    combined_video_duration:
+      job.combined_video_duration ??
+      null,
+
+    final_video_duration:
+      job.final_video_duration ??
+      null,
 
     opening_duration:
-      job.opening_duration ?? null,
+      job.opening_duration ??
+      null,
 
     ending_duration:
-      job.ending_duration ?? null,
+      job.ending_duration ??
+      null,
 
     scene_timeline:
-      job.scene_timeline ?? null,
+      job.scene_timeline ??
+      null,
+
+    timeline_validation:
+      job.timeline_validation ??
+      null,
+
+    audio_part_durations:
+      job.audio_part_durations ??
+      null,
 
     output_size_bytes:
-      job.output_size_bytes ?? null,
+      job.output_size_bytes ??
+      null,
 
     error:
-      job.error ?? null,
+      job.error ??
+      null,
 
     failed_scene_number:
-      job.failed_scene_number ?? null,
+      job.failed_scene_number ??
+      null,
 
     failed_shot_index:
-      job.failed_shot_index ?? null,
+      job.failed_shot_index ??
+      null,
 
     failed_audio_part:
-      job.failed_audio_part ?? null,
+      job.failed_audio_part ??
+      null,
 
     failed_url:
-      job.failed_url ?? null,
+      job.failed_url ??
+      null,
 
     timeout:
-      job.timeout ?? false,
+      job.timeout ??
+      false,
 
     max_render_minutes:
       HARD_TIMEOUT_MINUTES,
@@ -215,27 +346,203 @@ function publicJob(job) {
   };
 }
 
-function updateJob(jobId, patch) {
-  const job = jobs.get(jobId);
+
+function updateJob(
+  jobId,
+  patch
+) {
+
+  const job =
+    jobs.get(jobId);
 
   if (!job) {
     return;
   }
 
-  Object.assign(job, patch);
+  // Once timed out, no background process may revive the job.
+  if (
+    job.timeout === true &&
+    patch.status === 'completed'
+  ) {
+    return;
+  }
+
+  Object.assign(
+    job,
+    patch
+  );
 }
+
+
+function assertJobActive(jobId) {
+
+  const job =
+    jobs.get(jobId);
+
+  if (!job) {
+
+    const error =
+      new Error(
+        'Render job no longer exists'
+      );
+
+    error.isCancelled =
+      true;
+
+    throw error;
+  }
+
+  if (
+    job.abort_controller
+      ?.signal
+      ?.aborted
+  ) {
+
+    const error =
+      new Error(
+        job.timeout
+          ? `Render hard timeout after ${HARD_TIMEOUT_MINUTES} minutes`
+          : 'Render job aborted'
+      );
+
+    error.isTimeout =
+      Boolean(
+        job.timeout
+      );
+
+    error.isCancelled =
+      true;
+
+    throw error;
+  }
+}
+
+
+// ============================================================
+// CHILD PROCESS MANAGEMENT
+// ============================================================
+
+function registerChild(
+  jobId,
+  child
+) {
+
+  const job =
+    jobs.get(jobId);
+
+  if (!job) {
+    return;
+  }
+
+  if (
+    !(job.active_children instanceof Set)
+  ) {
+    job.active_children =
+      new Set();
+  }
+
+  job.active_children
+    .add(child);
+}
+
+
+function unregisterChild(
+  jobId,
+  child
+) {
+
+  const job =
+    jobs.get(jobId);
+
+  if (
+    !job ||
+    !(job.active_children instanceof Set)
+  ) {
+    return;
+  }
+
+  job.active_children
+    .delete(child);
+}
+
+
+function killActiveChildren(jobId) {
+
+  const job =
+    jobs.get(jobId);
+
+  if (
+    !job ||
+    !(job.active_children instanceof Set)
+  ) {
+    return;
+  }
+
+  for (
+    const child of
+    job.active_children
+  ) {
+
+    try {
+
+      if (
+        child &&
+        !child.killed
+      ) {
+
+        child.kill(
+          'SIGKILL'
+        );
+      }
+
+    } catch (_) {}
+  }
+
+  job.active_children
+    .clear();
+}
+
 
 // ============================================================
 // PROCESS
 // ============================================================
 
 function runProcess(
+  jobId,
   command,
   args,
   options = {}
 ) {
+
   return new Promise(
-    (resolve, reject) => {
+    (
+      resolve,
+      reject
+    ) => {
+
+      try {
+
+        assertJobActive(
+          jobId
+        );
+
+      } catch (error) {
+
+        reject(error);
+
+        return;
+      }
+
+      const job =
+        jobs.get(jobId);
+
+      const signal =
+        job
+          ?.abort_controller
+          ?.signal;
+
+      let settled =
+        false;
 
       const child =
         spawn(
@@ -251,44 +558,200 @@ function runProcess(
           }
         );
 
+      registerChild(
+        jobId,
+        child
+      );
+
       let stdout = '';
       let stderr = '';
+
+      const cleanup =
+        () => {
+
+          unregisterChild(
+            jobId,
+            child
+          );
+
+          if (
+            signal &&
+            abortHandler
+          ) {
+
+            signal.removeEventListener(
+              'abort',
+              abortHandler
+            );
+          }
+        };
+
+
+      const finishReject =
+        error => {
+
+          if (settled) {
+            return;
+          }
+
+          settled =
+            true;
+
+          cleanup();
+
+          reject(error);
+        };
+
+
+      const finishResolve =
+        result => {
+
+          if (settled) {
+            return;
+          }
+
+          settled =
+            true;
+
+          cleanup();
+
+          resolve(result);
+        };
+
+
+      const abortHandler =
+        () => {
+
+          try {
+
+            if (
+              !child.killed
+            ) {
+
+              child.kill(
+                'SIGKILL'
+              );
+            }
+
+          } catch (_) {}
+
+          const error =
+            new Error(
+              jobs.get(jobId)
+                ?.timeout
+                ? `Render hard timeout after ${HARD_TIMEOUT_MINUTES} minutes`
+                : 'Render process aborted'
+            );
+
+          error.isTimeout =
+            Boolean(
+              jobs.get(jobId)
+                ?.timeout
+            );
+
+          error.isCancelled =
+            true;
+
+          finishReject(
+            error
+          );
+        };
+
+
+      if (signal) {
+
+        if (signal.aborted) {
+
+          abortHandler();
+
+          return;
+        }
+
+        signal.addEventListener(
+          'abort',
+          abortHandler,
+          {
+            once: true
+          }
+        );
+      }
+
 
       child.stdout.on(
         'data',
         chunk => {
-          stdout += chunk.toString();
 
-          if (stdout.length > 20000) {
+          stdout +=
+            chunk.toString();
+
+          if (
+            stdout.length >
+            20000
+          ) {
+
             stdout =
-              stdout.slice(-20000);
+              stdout.slice(
+                -20000
+              );
           }
         }
       );
+
 
       child.stderr.on(
         'data',
         chunk => {
-          stderr += chunk.toString();
 
-          if (stderr.length > 30000) {
+          stderr +=
+            chunk.toString();
+
+          if (
+            stderr.length >
+            30000
+          ) {
+
             stderr =
-              stderr.slice(-30000);
+              stderr.slice(
+                -30000
+              );
           }
         }
       );
 
+
       child.on(
         'error',
-        reject
+        error => {
+
+          finishReject(
+            error
+          );
+        }
       );
+
 
       child.on(
         'close',
         code => {
 
-          if (code === 0) {
-            resolve({
+          if (settled) {
+            return;
+          }
+
+          if (
+            signal?.aborted
+          ) {
+
+            abortHandler();
+
+            return;
+          }
+
+          if (
+            code === 0
+          ) {
+
+            finishResolve({
               stdout,
               stderr
             });
@@ -296,7 +759,7 @@ function runProcess(
             return;
           }
 
-          reject(
+          finishReject(
             new Error(
               `${command} exited with code ${code}\n${stderr}`
             )
@@ -307,11 +770,26 @@ function runProcess(
   );
 }
 
+
 // ============================================================
 // DOWNLOAD
 // ============================================================
 
+function shouldRetryHttpStatus(
+  status
+) {
+
+  return (
+    status === 408 ||
+    status === 425 ||
+    status === 429 ||
+    status >= 500
+  );
+}
+
+
 async function downloadFile({
+  jobId,
   url,
   destination,
   type,
@@ -324,153 +802,302 @@ async function downloadFile({
     cleanText(url);
 
   if (!cleanUrl) {
+
     throw new Error(
       `${type} download URL is empty`
     );
   }
 
-  let response;
+  let lastError =
+    null;
 
-  try {
-
-    response =
-      await fetch(
-        cleanUrl,
-        {
-          redirect: 'follow',
-
-          headers: {
-            'User-Agent':
-              'Midnight-Files-Render/2.0'
-          }
-        }
-      );
-
-  } catch (error) {
-
-    const wrapped =
-      new Error(
-        `${type} download network error: ${error.message}`
-      );
-
-    wrapped.failedUrl =
-      cleanUrl;
-
-    wrapped.sceneNumber =
-      sceneNumber;
-
-    wrapped.shotIndex =
-      shotIndex;
-
-    wrapped.partIndex =
-      partIndex;
-
-    throw wrapped;
-  }
-
-  if (!response.ok) {
-
-    const wrapped =
-      new Error(
-        `${type} download failed: HTTP ${response.status} ${response.statusText}`
-      );
-
-    wrapped.failedUrl =
-      cleanUrl;
-
-    wrapped.sceneNumber =
-      sceneNumber;
-
-    wrapped.shotIndex =
-      shotIndex;
-
-    wrapped.partIndex =
-      partIndex;
-
-    throw wrapped;
-  }
-
-  const contentType =
-    cleanText(
-      response.headers.get(
-        'content-type'
-      )
-    ).toLowerCase();
-
-  if (
-    contentType.includes(
-      'text/html'
-    )
+  for (
+    let attempt = 1;
+    attempt <=
+    DOWNLOAD_MAX_ATTEMPTS;
+    attempt++
   ) {
 
-    const wrapped =
-      new Error(
-        `${type} download returned HTML instead of media. Check Google Drive sharing permission.`
-      );
-
-    wrapped.failedUrl =
-      cleanUrl;
-
-    wrapped.sceneNumber =
-      sceneNumber;
-
-    wrapped.shotIndex =
-      shotIndex;
-
-    wrapped.partIndex =
-      partIndex;
-
-    throw wrapped;
-  }
-
-  const buffer =
-    Buffer.from(
-      await response.arrayBuffer()
+    assertJobActive(
+      jobId
     );
 
-  if (buffer.length < 100) {
+    const job =
+      jobs.get(jobId);
 
-    const wrapped =
-      new Error(
-        `${type} download file is unexpectedly small (${buffer.length} bytes)`
+    const controller =
+      new AbortController();
+
+    let timedOut =
+      false;
+
+    const timeoutHandle =
+      setTimeout(
+        () => {
+
+          timedOut =
+            true;
+
+          controller.abort();
+
+        },
+        DOWNLOAD_TIMEOUT_MS
       );
 
-    wrapped.failedUrl =
-      cleanUrl;
+    const parentAbort =
+      () => {
 
-    wrapped.sceneNumber =
-      sceneNumber;
+        try {
+          controller.abort();
+        } catch (_) {}
+      };
 
-    wrapped.shotIndex =
-      shotIndex;
+    if (
+      job
+        ?.abort_controller
+        ?.signal
+    ) {
 
-    wrapped.partIndex =
-      partIndex;
+      if (
+        job.abort_controller
+          .signal
+          .aborted
+      ) {
 
-    throw wrapped;
+        clearTimeout(
+          timeoutHandle
+        );
+
+        assertJobActive(
+          jobId
+        );
+      }
+
+      job.abort_controller
+        .signal
+        .addEventListener(
+          'abort',
+          parentAbort,
+          {
+            once: true
+          }
+        );
+    }
+
+    try {
+
+      const response =
+        await fetch(
+          cleanUrl,
+          {
+            redirect:
+              'follow',
+
+            signal:
+              controller.signal,
+
+            headers: {
+              'User-Agent':
+                'Midnight-Files-Render/2.1'
+            }
+          }
+        );
+
+      if (!response.ok) {
+
+        const error =
+          new Error(
+            `${type} download failed: HTTP ${response.status} ${response.statusText}`
+          );
+
+        error.httpStatus =
+          response.status;
+
+        throw error;
+      }
+
+      const contentType =
+        cleanText(
+          response.headers.get(
+            'content-type'
+          )
+        )
+          .toLowerCase();
+
+      if (
+        contentType.includes(
+          'text/html'
+        )
+      ) {
+
+        const error =
+          new Error(
+            `${type} download returned HTML instead of media. Check Google Drive sharing permission.`
+          );
+
+        error.noRetry =
+          true;
+
+        throw error;
+      }
+
+      const buffer =
+        Buffer.from(
+          await response
+            .arrayBuffer()
+        );
+
+      if (
+        buffer.length <
+        100
+      ) {
+
+        const error =
+          new Error(
+            `${type} download file is unexpectedly small (${buffer.length} bytes)`
+          );
+
+        throw error;
+      }
+
+      await fsp.writeFile(
+        destination,
+        buffer
+      );
+
+      clearTimeout(
+        timeoutHandle
+      );
+
+      job
+        ?.abort_controller
+        ?.signal
+        ?.removeEventListener(
+          'abort',
+          parentAbort
+        );
+
+      return {
+        bytes:
+          buffer.length,
+
+        content_type:
+          contentType,
+
+        attempts:
+          attempt
+      };
+
+    } catch (error) {
+
+      clearTimeout(
+        timeoutHandle
+      );
+
+      job
+        ?.abort_controller
+        ?.signal
+        ?.removeEventListener(
+          'abort',
+          parentAbort
+        );
+
+      if (
+        job
+          ?.abort_controller
+          ?.signal
+          ?.aborted
+      ) {
+
+        assertJobActive(
+          jobId
+        );
+      }
+
+      const wrapped =
+        new Error(
+          timedOut
+            ? `${type} download timeout after ${DOWNLOAD_TIMEOUT_MS / 1000}s`
+            : `${type} download error: ${error.message}`
+        );
+
+      wrapped.failedUrl =
+        cleanUrl;
+
+      wrapped.sceneNumber =
+        sceneNumber;
+
+      wrapped.shotIndex =
+        shotIndex;
+
+      wrapped.partIndex =
+        partIndex;
+
+      wrapped.httpStatus =
+        error.httpStatus ??
+        null;
+
+      lastError =
+        wrapped;
+
+      const retryable =
+        !error.noRetry &&
+        (
+          timedOut ||
+          !Number.isFinite(
+            error.httpStatus
+          ) ||
+          shouldRetryHttpStatus(
+            error.httpStatus
+          )
+        );
+
+      if (
+        !retryable ||
+        attempt >=
+          DOWNLOAD_MAX_ATTEMPTS
+      ) {
+
+        throw wrapped;
+      }
+
+      const backoffMs =
+        Math.min(
+          8000,
+          1000 *
+          Math.pow(
+            2,
+            attempt - 1
+          )
+        );
+
+      await sleep(
+        backoffMs
+      );
+    }
   }
 
-  await fsp.writeFile(
-    destination,
-    buffer
+  throw (
+    lastError ||
+    new Error(
+      `${type} download failed`
+    )
   );
-
-  return {
-    bytes: buffer.length,
-    content_type: contentType
-  };
 }
+
 
 // ============================================================
 // FFPROBE
 // ============================================================
 
 async function getMediaDuration(
+  jobId,
   filePath
 ) {
 
   const result =
     await runProcess(
+      jobId,
       'ffprobe',
       [
         '-v',
@@ -494,9 +1121,12 @@ async function getMediaDuration(
     );
 
   if (
-    !Number.isFinite(duration) ||
+    !Number.isFinite(
+      duration
+    ) ||
     duration <= 0
   ) {
+
     throw new Error(
       `Unable to determine media duration: ${filePath}`
     );
@@ -505,6 +1135,7 @@ async function getMediaDuration(
   return duration;
 }
 
+
 // ============================================================
 // FONT
 // ============================================================
@@ -512,7 +1143,9 @@ async function getMediaDuration(
 async function detectFont() {
 
   const candidates = [
-    process.env.CJK_FONT_PATH,
+
+    process.env
+      .CJK_FONT_PATH,
 
     '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
 
@@ -523,15 +1156,19 @@ async function detectFont() {
     '/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc',
 
     '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
+
   ].filter(Boolean);
 
   for (
-    const candidate of candidates
+    const candidate of
+    candidates
   ) {
 
     try {
 
-      await fsp.access(candidate);
+      await fsp.access(
+        candidate
+      );
 
       return candidate;
 
@@ -540,6 +1177,7 @@ async function detectFont() {
 
   return '';
 }
+
 
 // ============================================================
 // DRAW TEXT
@@ -559,31 +1197,50 @@ function drawTextFilter({
 }) {
 
   const value =
-    escapeDrawtext(text);
+    escapeDrawtext(
+      text
+    );
 
   if (!value) {
     return '';
   }
 
+  const escapedFont =
+    String(fontFile)
+      .replace(/\\/g, '\\\\')
+      .replace(/:/g, '\\:')
+      .replace(/'/g, "\\'");
+
   const args = [
+
     'drawtext=',
-    `fontfile='${fontFile}'`,
+
+    `fontfile='${escapedFont}'`,
+
     `:text='${value}'`,
+
     `:fontsize=${fontSize}`,
+
     `:fontcolor=${fontColor}`,
+
     `:x=${x}`,
+
     `:y=${y}`
   ];
 
   if (box) {
+
     args.push(
       ':box=1',
+
       `:boxcolor=${boxColor}`,
+
       `:boxborderw=${boxBorder}`
     );
   }
 
   if (enable) {
+
     args.push(
       `:enable='${enable}'`
     );
@@ -592,14 +1249,37 @@ function drawTextFilter({
   return args.join('');
 }
 
+
 // ============================================================
 // SETTINGS
 // ============================================================
 
-function normalizeRenderSettings(input) {
+function normalizeRenderSettings(
+  input
+) {
 
   const source =
-    safeObject(input);
+    safeObject(
+      input
+    );
+
+  const minimumShotDuration =
+    Math.max(
+      0.5,
+      safeNumber(
+        source.minimum_shot_duration,
+        3.5
+      )
+    );
+
+  const maximumShotDuration =
+    Math.max(
+      minimumShotDuration,
+      safeNumber(
+        source.maximum_shot_duration,
+        45
+      )
+    );
 
   return {
 
@@ -689,8 +1369,7 @@ function normalizeRenderSettings(input) {
     audio_bitrate:
       cleanText(
         source.audio_bitrate
-      )
-      ||
+      ) ||
       '160k',
 
     video_codec:
@@ -705,29 +1384,39 @@ function normalizeRenderSettings(input) {
     timing_mode:
       cleanText(
         source.timing_mode
-      )
-      ||
+      ) ||
       'audio_driven_scene_weighted',
 
+    scene_timing_basis:
+      cleanText(
+        source.scene_timing_basis
+      ) ||
+      'narration_char_count',
+
     minimum_shot_duration:
-      Math.max(
-        2.5,
-        safeNumber(
-          source.minimum_shot_duration,
-          3.5
-        )
-      ),
+      minimumShotDuration,
 
     maximum_shot_duration:
+      maximumShotDuration,
+
+    hard_timeout_seconds:
       Math.max(
-        10,
-        safeNumber(
-          source.maximum_shot_duration,
-          30
+        60,
+        Math.min(
+          HARD_TIMEOUT_MINUTES *
+          60,
+          Math.round(
+            safeNumber(
+              source.hard_timeout_seconds,
+              HARD_TIMEOUT_MINUTES *
+              60
+            )
+          )
         )
       )
   };
 }
+
 
 // ============================================================
 // PRESENTATION
@@ -739,7 +1428,9 @@ function normalizePresentation(
 ) {
 
   const source =
-    safeObject(input);
+    safeObject(
+      input
+    );
 
   const opening =
     safeObject(
@@ -791,25 +1482,22 @@ function normalizePresentation(
       line_1:
         cleanText(
           opening.line_1
-        )
-        ||
+        ) ||
         cleanText(
           project.opening_disclaimer
-        )
-        ||
+        ) ||
         '本集內容根據公開案件資料整理',
 
       line_2:
         cleanText(
           opening.line_2
-        )
-        ||
+        ) ||
         cleanText(
           project.reconstruction_disclaimer
-        )
-        ||
+        ) ||
         '部分畫面為 AI 情境重建，非事件原始影像'
     },
+
 
     reconstruction_overlay: {
 
@@ -822,10 +1510,10 @@ function normalizePresentation(
       text:
         cleanText(
           reconstruction.text
-        )
-        ||
+        ) ||
         'AI 情境重建'
     },
+
 
     info_card: {
 
@@ -860,6 +1548,7 @@ function normalizePresentation(
         )
     },
 
+
     theory_overlay: {
 
       enabled:
@@ -871,17 +1560,16 @@ function normalizePresentation(
       default_title:
         cleanText(
           theory.default_title
-        )
-        ||
+        ) ||
         '官方調查推測',
 
       default_disclaimer:
         cleanText(
           theory.default_disclaimer
-        )
-        ||
-        '以下為官方調查認為最可能的事故解釋，並非目擊證實的完整經過'
+        ) ||
+        '以上為可能性分析，並非案件定論'
     },
+
 
     ending_card: {
 
@@ -906,54 +1594,395 @@ function normalizePresentation(
       title:
         cleanText(
           ending.title
-        )
-        ||
+        ) ||
         cleanText(
           project.ending_title
-        )
-        ||
+        ) ||
         'FLANNAN ISLES',
 
       subtitle:
         cleanText(
           ending.subtitle
-        )
-        ||
+        ) ||
         cleanText(
           project.ending_subtitle
-        )
-        ||
+        ) ||
         '1900',
 
       footer:
         cleanText(
           ending.footer
-        )
-        ||
+        ) ||
         cleanText(
           project.ending_footer
-        )
-        ||
+        ) ||
         '三名燈塔守衛失蹤，確切經過至今無法直接證實'
     }
   };
 }
 
+
 // ============================================================
-// BUILD SCENE TIMELINE
+// PAYLOAD VALIDATION
 // ============================================================
 
-function buildSceneTimeline({
-  scenes,
-  narrationDuration,
-  settings
+function validateScenes(
+  scenes
+) {
+
+  if (
+    scenes.length !==
+    EXPECTED_VISUALS
+  ) {
+
+    throw new Error(
+      `Expected ${EXPECTED_VISUALS} visuals, received ${scenes.length}`
+    );
+  }
+
+  const keySet =
+    new Set();
+
+  const renderIndexSet =
+    new Set();
+
+  for (
+    const visual of
+    scenes
+  ) {
+
+    const sceneNumber =
+      safeNumber(
+        visual.scene_number,
+        null
+      );
+
+    const shotIndex =
+      safeNumber(
+        visual.shot_index ??
+        visual.shot_number,
+        null
+      );
+
+    const renderIndex =
+      safeNumber(
+        visual.render_index,
+        null
+      );
+
+    if (
+      !Number.isInteger(
+        sceneNumber
+      ) ||
+      sceneNumber < 1 ||
+      sceneNumber >
+        EXPECTED_SCENES
+    ) {
+
+      throw new Error(
+        `Invalid scene_number: ${sceneNumber}`
+      );
+    }
+
+    if (
+      !Number.isInteger(
+        shotIndex
+      ) ||
+      shotIndex < 1 ||
+      shotIndex >
+        EXPECTED_SHOTS_PER_SCENE
+    ) {
+
+      throw new Error(
+        `Invalid shot_index at Scene ${sceneNumber}: ${shotIndex}`
+      );
+    }
+
+    const key =
+      `${sceneNumber}-${shotIndex}`;
+
+    if (
+      keySet.has(
+        key
+      )
+    ) {
+
+      throw new Error(
+        `Duplicate visual: Scene ${sceneNumber} Shot ${shotIndex}`
+      );
+    }
+
+    keySet.add(
+      key
+    );
+
+    if (
+      !Number.isInteger(
+        renderIndex
+      ) ||
+      renderIndex < 1 ||
+      renderIndex >
+        EXPECTED_VISUALS
+    ) {
+
+      throw new Error(
+        `Invalid render_index: ${renderIndex}`
+      );
+    }
+
+    if (
+      renderIndexSet.has(
+        renderIndex
+      )
+    ) {
+
+      throw new Error(
+        `Duplicate render_index: ${renderIndex}`
+      );
+    }
+
+    renderIndexSet.add(
+      renderIndex
+    );
+
+    if (
+      !cleanText(
+        visual.image_url
+      )
+    ) {
+
+      throw new Error(
+        `Scene ${sceneNumber} Shot ${shotIndex} missing image_url`
+      );
+    }
+  }
+
+  for (
+    let sceneNumber = 1;
+    sceneNumber <=
+    EXPECTED_SCENES;
+    sceneNumber++
+  ) {
+
+    for (
+      let shotIndex = 1;
+      shotIndex <=
+      EXPECTED_SHOTS_PER_SCENE;
+      shotIndex++
+    ) {
+
+      if (
+        !keySet.has(
+          `${sceneNumber}-${shotIndex}`
+        )
+      ) {
+
+        throw new Error(
+          `Missing Scene ${sceneNumber} Shot ${shotIndex}`
+        );
+      }
+    }
+  }
+
+  for (
+    let index = 1;
+    index <=
+    EXPECTED_VISUALS;
+    index++
+  ) {
+
+    if (
+      !renderIndexSet.has(
+        index
+      )
+    ) {
+
+      throw new Error(
+        `Missing render_index ${index}`
+      );
+    }
+  }
+}
+
+
+function validateAudioParts(
+  audioParts
+) {
+
+  if (
+    audioParts.length <
+      MIN_AUDIO_PARTS ||
+    audioParts.length >
+      MAX_AUDIO_PARTS
+  ) {
+
+    throw new Error(
+      `audio_parts must contain ${MIN_AUDIO_PARTS}-${MAX_AUDIO_PARTS} items; received ${audioParts.length}`
+    );
+  }
+
+  const indexSet =
+    new Set();
+
+  const fileIdSet =
+    new Set();
+
+  const urlSet =
+    new Set();
+
+  for (
+    const part of
+    audioParts
+  ) {
+
+    const partIndex =
+      safeNumber(
+        part.part_index,
+        null
+      );
+
+    if (
+      !Number.isInteger(
+        partIndex
+      ) ||
+      partIndex < 1 ||
+      partIndex >
+        audioParts.length
+    ) {
+
+      throw new Error(
+        `Invalid audio part_index: ${partIndex}`
+      );
+    }
+
+    if (
+      indexSet.has(
+        partIndex
+      )
+    ) {
+
+      throw new Error(
+        `Duplicate audio part_index: ${partIndex}`
+      );
+    }
+
+    indexSet.add(
+      partIndex
+    );
+
+    const audioUrl =
+      cleanText(
+        part.audio_url
+      );
+
+    if (!audioUrl) {
+
+      throw new Error(
+        `Audio Part ${partIndex} missing audio_url`
+      );
+    }
+
+    if (
+      urlSet.has(
+        audioUrl
+      )
+    ) {
+
+      throw new Error(
+        `Duplicate audio_url at Part ${partIndex}`
+      );
+    }
+
+    urlSet.add(
+      audioUrl
+    );
+
+    const fileId =
+      cleanText(
+        part.audio_file_id ??
+        part.file_id
+      );
+
+    if (!fileId) {
+
+      throw new Error(
+        `Audio Part ${partIndex} missing audio_file_id`
+      );
+    }
+
+    if (
+      [
+        'anyone',
+        'anyonewithlink',
+        'reader',
+        'writer'
+      ].includes(
+        fileId.toLowerCase()
+      )
+    ) {
+
+      throw new Error(
+        `Audio Part ${partIndex} contains permission ID instead of Drive file ID`
+      );
+    }
+
+    if (
+      fileIdSet.has(
+        fileId
+      )
+    ) {
+
+      throw new Error(
+        `Duplicate audio_file_id at Part ${partIndex}`
+      );
+    }
+
+    fileIdSet.add(
+      fileId
+    );
+  }
+
+  for (
+    let index = 1;
+    index <=
+    audioParts.length;
+    index++
+  ) {
+
+    if (
+      !indexSet.has(
+        index
+      )
+    ) {
+
+      throw new Error(
+        `Missing Audio Part ${index}`
+      );
+    }
+  }
+}
+
+
+// ============================================================
+// SCENE TIMING VALIDATION
+// ============================================================
+
+function normalizeSceneTimings({
+  input,
+  scenes
 }) {
 
-  const sceneMap =
+  const supplied =
+    safeArray(
+      input
+    );
+
+  const fallbackMap =
     new Map();
 
   for (
-    const visual of scenes
+    const visual of
+    scenes
   ) {
 
     const sceneNumber =
@@ -971,174 +2000,433 @@ function buildSceneTimeline({
     }
 
     if (
-      !sceneMap.has(
+      !fallbackMap.has(
         sceneNumber
       )
     ) {
 
-      sceneMap.set(
+      fallbackMap.set(
         sceneNumber,
-        {
-          scene_number:
-            sceneNumber,
-
-          narration:
+        Math.max(
+          1,
+          safeNumber(
+            visual.narration_chars,
             cleanText(
               visual.narration
+            ).length ||
+            1
+          )
+        )
+      );
+    }
+  }
+
+  let normalized = [];
+
+  if (
+    supplied.length ===
+    EXPECTED_SCENES
+  ) {
+
+    normalized =
+      supplied.map(
+        item => ({
+
+          scene_number:
+            safeNumber(
+              item.scene_number,
+              null
             ),
 
-          visuals: []
+          narration_chars:
+            Math.max(
+              1,
+              safeNumber(
+                item.narration_chars,
+                1
+              )
+            ),
+
+          supplied_weight:
+            safeNumber(
+              item.narration_weight,
+              null
+            )
+        })
+      );
+
+  } else {
+
+    normalized =
+      Array.from(
+        {
+          length:
+            EXPECTED_SCENES
+        },
+        (
+          _,
+          index
+        ) => {
+
+          const sceneNumber =
+            index + 1;
+
+          return {
+
+            scene_number:
+              sceneNumber,
+
+            narration_chars:
+              Math.max(
+                1,
+                fallbackMap.get(
+                  sceneNumber
+                ) ||
+                1
+              ),
+
+            supplied_weight:
+              null
+          };
         }
+      );
+  }
+
+  normalized.sort(
+    (a, b) =>
+      a.scene_number -
+      b.scene_number
+  );
+
+  const seen =
+    new Set();
+
+  for (
+    let index = 0;
+    index <
+      normalized.length;
+    index++
+  ) {
+
+    const item =
+      normalized[index];
+
+    const expected =
+      index + 1;
+
+    if (
+      !Number.isInteger(
+        item.scene_number
+      ) ||
+      item.scene_number !==
+        expected
+    ) {
+
+      throw new Error(
+        `scene_timings must contain Scene 1-${EXPECTED_SCENES}; expected ${expected}, received ${item.scene_number}`
       );
     }
 
-    sceneMap
-      .get(sceneNumber)
-      .visuals
-      .push(visual);
-  }
+    if (
+      seen.has(
+        item.scene_number
+      )
+    ) {
 
-  const storyScenes =
-    [...sceneMap.values()]
-      .sort(
-        (a, b) =>
-          a.scene_number -
-          b.scene_number
+      throw new Error(
+        `Duplicate scene_timing for Scene ${item.scene_number}`
       );
+    }
 
-  if (!storyScenes.length) {
-    throw new Error(
-      'Unable to build scene timeline'
+    seen.add(
+      item.scene_number
     );
   }
 
-  const totalWeight =
-    storyScenes.reduce(
-      (sum, scene) =>
+  const charTotal =
+    normalized.reduce(
+      (
+        sum,
+        item
+      ) =>
         sum +
-        Math.max(
-          1,
-          scene.narration.length
-        ),
+        item.narration_chars,
       0
     );
 
-  let allocated = 0;
+  if (
+    !Number.isFinite(
+      charTotal
+    ) ||
+    charTotal <= 0
+  ) {
 
-  const timeline =
-    storyScenes.map(
-      (scene, index) => {
-
-        let sceneDuration;
-
-        if (
-          index ===
-          storyScenes.length - 1
-        ) {
-
-          sceneDuration =
-            Math.max(
-              0.1,
-              narrationDuration -
-              allocated
-            );
-
-        } else {
-
-          sceneDuration =
-            narrationDuration *
-            (
-              Math.max(
-                1,
-                scene.narration.length
-              ) /
-              totalWeight
-            );
-
-          allocated +=
-            sceneDuration;
-        }
-
-        const shotCount =
-          Math.max(
-            1,
-            scene.visuals.length
-          );
-
-        const shotDuration =
-          sceneDuration /
-          shotCount;
-
-        return {
-          scene_number:
-            scene.scene_number,
-
-          narration_chars:
-            scene.narration.length,
-
-          duration:
-            sceneDuration,
-
-          shot_count:
-            shotCount,
-
-          shot_duration:
-            shotDuration
-        };
-      }
+    throw new Error(
+      'Invalid total narration chars in scene_timings'
     );
+  }
 
-  const calculatedTotal =
+  return normalized.map(
+    item => ({
+
+      scene_number:
+        item.scene_number,
+
+      narration_chars:
+        item.narration_chars,
+
+      narration_weight:
+        item.narration_chars /
+        charTotal
+    })
+  );
+}
+
+
+// ============================================================
+// BUILD SCENE TIMELINE
+// ============================================================
+
+function buildSceneTimeline({
+  scenes,
+  sceneTimings,
+  narrationDuration
+}) {
+
+  if (
+    !Number.isFinite(
+      narrationDuration
+    ) ||
+    narrationDuration <= 0
+  ) {
+
+    throw new Error(
+      'Invalid narrationDuration'
+    );
+  }
+
+  const visualMap =
+    new Map();
+
+  for (
+    const visual of
+    scenes
+  ) {
+
+    const sceneNumber =
+      safeNumber(
+        visual.scene_number,
+        null
+      );
+
+    if (
+      !visualMap.has(
+        sceneNumber
+      )
+    ) {
+
+      visualMap.set(
+        sceneNumber,
+        []
+      );
+    }
+
+    visualMap
+      .get(
+        sceneNumber
+      )
+      .push(
+        visual
+      );
+  }
+
+  const timeline = [];
+
+  let allocated =
+    0;
+
+  for (
+    let index = 0;
+    index <
+      sceneTimings.length;
+    index++
+  ) {
+
+    const timing =
+      sceneTimings[index];
+
+    const sceneNumber =
+      timing.scene_number;
+
+    const visuals =
+      visualMap.get(
+        sceneNumber
+      ) ||
+      [];
+
+    if (
+      visuals.length !==
+      EXPECTED_SHOTS_PER_SCENE
+    ) {
+
+      throw new Error(
+        `Scene ${sceneNumber} must contain exactly ${EXPECTED_SHOTS_PER_SCENE} visuals`
+      );
+    }
+
+    let sceneDuration;
+
+    if (
+      index ===
+      sceneTimings.length - 1
+    ) {
+
+      sceneDuration =
+        narrationDuration -
+        allocated;
+
+    } else {
+
+      sceneDuration =
+        narrationDuration *
+        timing.narration_weight;
+
+      allocated +=
+        sceneDuration;
+    }
+
+    if (
+      !Number.isFinite(
+        sceneDuration
+      ) ||
+      sceneDuration <= 0
+    ) {
+
+      throw new Error(
+        `Invalid duration generated for Scene ${sceneNumber}`
+      );
+    }
+
+    const shotDuration =
+      sceneDuration /
+      EXPECTED_SHOTS_PER_SCENE;
+
+    if (
+      !Number.isFinite(
+        shotDuration
+      ) ||
+      shotDuration <= 0
+    ) {
+
+      throw new Error(
+        `Invalid shot duration generated for Scene ${sceneNumber}`
+      );
+    }
+
+    timeline.push({
+
+      scene_number:
+        sceneNumber,
+
+      narration_chars:
+        timing.narration_chars,
+
+      narration_weight:
+        timing.narration_weight,
+
+      duration:
+        sceneDuration,
+
+      shot_count:
+        EXPECTED_SHOTS_PER_SCENE,
+
+      shot_duration:
+        shotDuration
+    });
+  }
+
+  const total =
     timeline.reduce(
-      (sum, scene) =>
+      (
+        sum,
+        item
+      ) =>
         sum +
-        scene.duration,
+        item.duration,
       0
     );
 
   const difference =
     narrationDuration -
-    calculatedTotal;
+    total;
 
   if (
-    timeline.length &&
-    Math.abs(difference) >
-      0.0001
+    Math.abs(
+      difference
+    ) >
+    0.000001
   ) {
-    timeline[
-      timeline.length - 1
-    ].duration +=
+
+    const last =
+      timeline[
+        timeline.length - 1
+      ];
+
+    last.duration +=
       difference;
 
-    timeline[
-      timeline.length - 1
-    ].shot_duration =
-      timeline[
-        timeline.length - 1
-      ].duration /
-      timeline[
-        timeline.length - 1
-      ].shot_count;
+    last.shot_duration =
+      last.duration /
+      EXPECTED_SHOTS_PER_SCENE;
+  }
+
+  const finalTotal =
+    timeline.reduce(
+      (
+        sum,
+        item
+      ) =>
+        sum +
+        item.duration,
+      0
+    );
+
+  if (
+    Math.abs(
+      finalTotal -
+      narrationDuration
+    ) >
+    0.01
+  ) {
+
+    throw new Error(
+      `Scene timeline duration mismatch. narration=${narrationDuration.toFixed(3)} timeline=${finalTotal.toFixed(3)}`
+    );
   }
 
   return timeline;
 }
+
 
 // ============================================================
 // SILENCE
 // ============================================================
 
 async function createSilence({
+  jobId,
   destination,
   duration,
   settings
 }) {
 
-  if (duration <= 0) {
+  if (
+    duration <= 0
+  ) {
     return;
   }
 
   await runProcess(
+    jobId,
     'ffmpeg',
     [
       '-y',
@@ -1150,7 +2438,9 @@ async function createSilence({
       'anullsrc=channel_layout=stereo:sample_rate=48000',
 
       '-t',
-      String(duration),
+      String(
+        duration
+      ),
 
       '-c:a',
       'aac',
@@ -1169,11 +2459,13 @@ async function createSilence({
   );
 }
 
+
 // ============================================================
 // OPENING CARD
 // ============================================================
 
 async function createOpeningCard({
+  jobId,
   destination,
   settings,
   presentation,
@@ -1187,13 +2479,15 @@ async function createOpeningCard({
     preset,
     crf,
     threads
-  } = settings;
+  } =
+    settings;
 
   const opening =
     presentation
       .opening_disclaimer;
 
   const filters = [
+
     drawTextFilter({
       text:
         opening.line_1,
@@ -1202,7 +2496,8 @@ async function createOpeningCard({
 
       fontSize:
         Math.round(
-          height * 0.047
+          height *
+          0.047
         ),
 
       x:
@@ -1223,7 +2518,8 @@ async function createOpeningCard({
 
       fontSize:
         Math.round(
-          height * 0.033
+          height *
+          0.033
         ),
 
       x:
@@ -1241,6 +2537,7 @@ async function createOpeningCard({
   ];
 
   await runProcess(
+    jobId,
     'ffmpeg',
     [
       '-y',
@@ -1273,16 +2570,21 @@ async function createOpeningCard({
       '-pix_fmt',
       'yuv420p',
 
+      '-movflags',
+      '+faststart',
+
       destination
     ]
   );
 }
+
 
 // ============================================================
 // ENDING CARD
 // ============================================================
 
 async function createEndingCard({
+  jobId,
   destination,
   settings,
   presentation,
@@ -1296,13 +2598,15 @@ async function createEndingCard({
     preset,
     crf,
     threads
-  } = settings;
+  } =
+    settings;
 
   const ending =
     presentation
       .ending_card;
 
   const filters = [
+
     drawTextFilter({
       text:
         ending.title,
@@ -1311,7 +2615,8 @@ async function createEndingCard({
 
       fontSize:
         Math.round(
-          height * 0.075
+          height *
+          0.075
         ),
 
       x:
@@ -1332,7 +2637,8 @@ async function createEndingCard({
 
       fontSize:
         Math.round(
-          height * 0.045
+          height *
+          0.045
         ),
 
       x:
@@ -1356,7 +2662,8 @@ async function createEndingCard({
 
       fontSize:
         Math.round(
-          height * 0.031
+          height *
+          0.031
         ),
 
       x:
@@ -1374,6 +2681,7 @@ async function createEndingCard({
   ];
 
   await runProcess(
+    jobId,
     'ffmpeg',
     [
       '-y',
@@ -1406,16 +2714,21 @@ async function createEndingCard({
       '-pix_fmt',
       'yuv420p',
 
+      '-movflags',
+      '+faststart',
+
       destination
     ]
   );
 }
+
 
 // ============================================================
 // VISUAL SEGMENT
 // ============================================================
 
 async function createVisualSegment({
+  jobId,
   imagePath,
   destination,
   duration,
@@ -1432,7 +2745,20 @@ async function createVisualSegment({
     preset,
     crf,
     threads
-  } = settings;
+  } =
+    settings;
+
+  if (
+    !Number.isFinite(
+      duration
+    ) ||
+    duration <= 0
+  ) {
+
+    throw new Error(
+      `Invalid visual duration: ${duration}`
+    );
+  }
 
   const p =
     safeObject(
@@ -1452,8 +2778,9 @@ async function createVisualSegment({
   const totalFrames =
     Math.max(
       1,
-      Math.ceil(
-        duration * fps
+      Math.round(
+        duration *
+        fps
       )
     );
 
@@ -1461,39 +2788,41 @@ async function createVisualSegment({
     `zoompan=z='min(zoom+0.00008,1.035)':d=${totalFrames}:s=${width}x${height}:fps=${fps}`
   );
 
+
   // ----------------------------------------------------------
-  // AI reconstruction
+  // AI RECONSTRUCTION
   // ----------------------------------------------------------
 
   if (
     presentationSettings
       .reconstruction_overlay
-      .enabled
-    &&
-    p.reconstruction !== false
+      .enabled &&
+    p.reconstruction !==
+      false
   ) {
 
     const label =
       cleanText(
         p.reconstruction_label
-      )
-      ||
+      ) ||
       cleanText(
         visual.reconstruction_label
-      )
-      ||
+      ) ||
       presentationSettings
         .reconstruction_overlay
         .text;
 
     filters.push(
       drawTextFilter({
-        text: label,
+        text:
+          label,
+
         fontFile,
 
         fontSize:
           Math.round(
-            height * 0.026
+            height *
+            0.026
           ),
 
         x:
@@ -1514,8 +2843,9 @@ async function createVisualSegment({
     );
   }
 
+
   // ----------------------------------------------------------
-  // Date / Location
+  // DATE / LOCATION
   // ----------------------------------------------------------
 
   if (
@@ -1531,8 +2861,7 @@ async function createVisualSegment({
         ? (
             cleanText(
               p.date_card
-            )
-            ||
+            ) ||
             cleanText(
               visual.date_card
             )
@@ -1546,8 +2875,7 @@ async function createVisualSegment({
         ? (
             cleanText(
               p.location_card
-            )
-            ||
+            ) ||
             cleanText(
               visual.location_card
             )
@@ -1563,22 +2891,28 @@ async function createVisualSegment({
       );
 
     const enable =
-      `between(t,0,${maxDuration})`;
+      `between(t,0,${roundDuration(maxDuration)})`;
 
     if (date) {
 
       filters.push(
         drawTextFilter({
-          text: date,
+          text:
+            date,
+
           fontFile,
 
           fontSize:
             Math.round(
-              height * 0.041
+              height *
+              0.041
             ),
 
-          x: '28',
-          y: 'h-112',
+          x:
+            '28',
+
+          y:
+            'h-112',
 
           boxColor:
             'black@0.52',
@@ -1595,16 +2929,22 @@ async function createVisualSegment({
 
       filters.push(
         drawTextFilter({
-          text: location,
+          text:
+            location,
+
           fontFile,
 
           fontSize:
             Math.round(
-              height * 0.028
+              height *
+              0.028
             ),
 
-          x: '28',
-          y: 'h-60',
+          x:
+            '28',
+
+          y:
+            'h-60',
 
           fontColor:
             'white@0.84',
@@ -1621,15 +2961,15 @@ async function createVisualSegment({
     }
   }
 
+
   // ----------------------------------------------------------
-  // Theory
+  // THEORY
   // ----------------------------------------------------------
 
   const sceneType =
     cleanText(
       p.scene_type
-    )
-    ||
+    ) ||
     cleanText(
       visual.scene_type
     );
@@ -1637,8 +2977,7 @@ async function createVisualSegment({
   const theoryLabel =
     cleanText(
       p.theory_label
-    )
-    ||
+    ) ||
     cleanText(
       visual.theory_label
     );
@@ -1646,18 +2985,16 @@ async function createVisualSegment({
   if (
     presentationSettings
       .theory_overlay
-      .enabled
-    &&
+      .enabled &&
     (
-      sceneType === 'theory'
-      ||
+      sceneType ===
+        'theory' ||
       theoryLabel
     )
   ) {
 
     const theoryTitle =
-      theoryLabel
-      ||
+      theoryLabel ||
       presentationSettings
         .theory_overlay
         .default_title;
@@ -1665,12 +3002,10 @@ async function createVisualSegment({
     const theoryDisclaimer =
       cleanText(
         p.disclaimer
-      )
-      ||
+      ) ||
       cleanText(
         visual.disclaimer
-      )
-      ||
+      ) ||
       presentationSettings
         .theory_overlay
         .default_disclaimer;
@@ -1684,11 +3019,15 @@ async function createVisualSegment({
 
         fontSize:
           Math.round(
-            height * 0.035
+            height *
+            0.035
           ),
 
-        x: '28',
-        y: '28',
+        x:
+          '28',
+
+        y:
+          '28',
 
         boxColor:
           'black@0.50',
@@ -1707,7 +3046,8 @@ async function createVisualSegment({
 
         fontSize:
           Math.round(
-            height * 0.026
+            height *
+            0.026
           ),
 
         x:
@@ -1728,7 +3068,9 @@ async function createVisualSegment({
     );
   }
 
+
   await runProcess(
+    jobId,
     'ffmpeg',
     [
       '-y',
@@ -1740,7 +3082,11 @@ async function createVisualSegment({
       imagePath,
 
       '-t',
-      String(duration),
+      String(
+        roundDuration(
+          duration
+        )
+      ),
 
       '-vf',
       filters
@@ -1775,11 +3121,13 @@ async function createVisualSegment({
   );
 }
 
+
 // ============================================================
 // CONCAT VIDEO
 // ============================================================
 
 async function concatVideoSegments({
+  jobId,
   files,
   destination,
   workDir,
@@ -1809,6 +3157,7 @@ async function concatVideoSegments({
   try {
 
     await runProcess(
+      jobId,
       'ffmpeg',
       [
         '-y',
@@ -1831,9 +3180,19 @@ async function concatVideoSegments({
 
     return;
 
-  } catch (_) {}
+  } catch (error) {
+
+    assertJobActive(
+      jobId
+    );
+
+    console.warn(
+      `[${jobId}] Stream-copy concat failed; falling back to re-encode`
+    );
+  }
 
   await runProcess(
+    jobId,
     'ffmpeg',
     [
       '-y',
@@ -1866,26 +3225,42 @@ async function concatVideoSegments({
       '-pix_fmt',
       'yuv420p',
 
+      '-an',
+
+      '-movflags',
+      '+faststart',
+
       destination
     ]
   );
 }
+
 
 // ============================================================
 // CONCAT AUDIO
 // ============================================================
 
 async function concatAudio({
+  jobId,
   files,
   destination,
   workDir,
   settings
 }) {
 
+  if (
+    !files.length
+  ) {
+
+    throw new Error(
+      'concatAudio received no files'
+    );
+  }
+
   const concatFile =
     path.join(
       workDir,
-      'audio_concat.txt'
+      `audio_concat_${crypto.randomUUID()}.txt`
     );
 
   const content =
@@ -1902,42 +3277,61 @@ async function concatAudio({
     'utf8'
   );
 
-  await runProcess(
-    'ffmpeg',
-    [
-      '-y',
+  try {
 
-      '-f',
-      'concat',
+    await runProcess(
+      jobId,
+      'ffmpeg',
+      [
+        '-y',
 
-      '-safe',
-      '0',
+        '-f',
+        'concat',
 
-      '-i',
-      concatFile,
+        '-safe',
+        '0',
 
-      '-ar',
-      '48000',
+        '-i',
+        concatFile,
 
-      '-ac',
-      '2',
+        '-ar',
+        '48000',
 
-      '-c:a',
-      'aac',
+        '-ac',
+        '2',
 
-      '-b:a',
-      settings.audio_bitrate,
+        '-c:a',
+        'aac',
 
-      destination
-    ]
-  );
+        '-b:a',
+        settings.audio_bitrate,
+
+        destination
+      ]
+    );
+
+  } finally {
+
+    try {
+
+      await fsp.rm(
+        concatFile,
+        {
+          force: true
+        }
+      );
+
+    } catch (_) {}
+  }
 }
+
 
 // ============================================================
 // FINAL AUDIO
 // ============================================================
 
 async function buildFinalAudioTimeline({
+  jobId,
   narrationPath,
   openingDuration,
   endingDuration,
@@ -1948,7 +3342,9 @@ async function buildFinalAudioTimeline({
 
   const parts = [];
 
-  if (openingDuration > 0) {
+  if (
+    openingDuration > 0
+  ) {
 
     const openingSilence =
       path.join(
@@ -1957,6 +3353,8 @@ async function buildFinalAudioTimeline({
       );
 
     await createSilence({
+      jobId,
+
       destination:
         openingSilence,
 
@@ -1975,7 +3373,9 @@ async function buildFinalAudioTimeline({
     narrationPath
   );
 
-  if (endingDuration > 0) {
+  if (
+    endingDuration > 0
+  ) {
 
     const endingSilence =
       path.join(
@@ -1984,6 +3384,8 @@ async function buildFinalAudioTimeline({
       );
 
     await createSilence({
+      jobId,
+
       destination:
         endingSilence,
 
@@ -1999,25 +3401,36 @@ async function buildFinalAudioTimeline({
   }
 
   await concatAudio({
-    files: parts,
+    jobId,
+
+    files:
+      parts,
+
     destination,
+
     workDir,
+
     settings
   });
 }
+
 
 // ============================================================
 // FINAL MUX
 // ============================================================
 
 async function muxFinal({
+  jobId,
   videoPath,
   audioPath,
   destination,
   settings
 }) {
 
+  // Do NOT use -shortest.
+  // Durations are validated before muxing.
   await runProcess(
+    jobId,
     'ffmpeg',
     [
       '-y',
@@ -2046,8 +3459,6 @@ async function muxFinal({
       '-pix_fmt',
       'yuv420p',
 
-      '-shortest',
-
       '-movflags',
       '+faststart',
 
@@ -2055,6 +3466,7 @@ async function muxFinal({
     ]
   );
 }
+
 
 // ============================================================
 // MAIN RENDER
@@ -2091,50 +3503,93 @@ async function processRender(
 
   try {
 
+    assertJobActive(
+      jobId
+    );
+
     updateJob(
       jobId,
       {
-        status: 'processing',
-        started_at: nowIso(),
-        progress: 1,
-        current_step: 'initializing'
+        status:
+          'processing',
+
+        started_at:
+          nowIso(),
+
+        progress:
+          1,
+
+        current_step:
+          'initializing'
       }
     );
 
     await Promise.all([
+
       fsp.mkdir(
         imageDir,
-        { recursive: true }
+        {
+          recursive: true
+        }
       ),
 
       fsp.mkdir(
         audioDir,
-        { recursive: true }
+        {
+          recursive: true
+        }
       ),
 
       fsp.mkdir(
         segmentDir,
-        { recursive: true }
+        {
+          recursive: true
+        }
       )
     ]);
+
+    assertJobActive(
+      jobId
+    );
+
+
+    // --------------------------------------------------------
+    // INPUT
+    // --------------------------------------------------------
 
     const scenes =
       safeArray(
         payload.scenes
       )
         .slice()
+        .map(
+          visual => ({
+
+            ...visual,
+
+            shot_index:
+              safeNumber(
+                visual.shot_index ??
+                visual.shot_number,
+                null
+              )
+          })
+        )
         .sort(
-          (a, b) =>
+          (
+            a,
+            b
+          ) =>
             safeNumber(
               a.render_index,
               0
-            )
-            -
+            ) -
             safeNumber(
               b.render_index,
               0
             )
         );
+
 
     const audioParts =
       safeArray(
@@ -2142,45 +3597,57 @@ async function processRender(
       )
         .slice()
         .sort(
-          (a, b) =>
+          (
+            a,
+            b
+          ) =>
             safeNumber(
               a.part_index,
               0
-            )
-            -
+            ) -
             safeNumber(
               b.part_index,
               0
             )
         );
 
-    if (!scenes.length) {
-      throw new Error(
-        'Payload contains no scenes'
-      );
-    }
 
-    if (!audioParts.length) {
-      throw new Error(
-        'Payload contains no audio_parts'
-      );
-    }
+    validateScenes(
+      scenes
+    );
+
+    validateAudioParts(
+      audioParts
+    );
+
 
     const settings =
       normalizeRenderSettings(
         payload.render_settings
       );
 
+
     const project =
       safeObject(
         payload.project
       );
+
 
     const presentation =
       normalizePresentation(
         payload.presentation_settings,
         project
       );
+
+
+    const sceneTimings =
+      normalizeSceneTimings({
+        input:
+          payload.scene_timings,
+
+        scenes
+      });
+
 
     const openingDuration =
       presentation
@@ -2191,6 +3658,7 @@ async function processRender(
             .duration
         : 0;
 
+
     const endingDuration =
       presentation
         .ending_card
@@ -2199,6 +3667,7 @@ async function processRender(
             .ending_card
             .duration
         : 0;
+
 
     updateJob(
       jobId,
@@ -2217,6 +3686,7 @@ async function processRender(
       }
     );
 
+
     // --------------------------------------------------------
     // FONT
     // --------------------------------------------------------
@@ -2224,35 +3694,50 @@ async function processRender(
     updateJob(
       jobId,
       {
-        progress: 2,
+        progress:
+          2,
+
         current_step:
           'checking_font'
       }
     );
 
+
     const fontFile =
       await detectFont();
 
+
     if (!fontFile) {
+
       throw new Error(
         'No usable font found. Install Noto Sans CJK or set CJK_FONT_PATH.'
       );
     }
 
+
     // --------------------------------------------------------
     // IMAGES
     // --------------------------------------------------------
 
-    const imagePaths = [];
+    const imagePaths =
+      [];
+
 
     for (
       let index = 0;
-      index < scenes.length;
+      index <
+        scenes.length;
       index++
     ) {
 
+      assertJobActive(
+        jobId
+      );
+
       const visual =
-        scenes[index] ?? {};
+        scenes[index] ??
+        {};
+
 
       const sceneNumber =
         safeNumber(
@@ -2260,32 +3745,19 @@ async function processRender(
           null
         );
 
+
       const shotIndex =
         safeNumber(
           visual.shot_index,
           null
         );
 
+
       const imageUrl =
         cleanText(
           visual.image_url
         );
 
-      if (!imageUrl) {
-
-        const error =
-          new Error(
-            `Scene ${sceneNumber} Shot ${shotIndex} missing image_url`
-          );
-
-        error.sceneNumber =
-          sceneNumber;
-
-        error.shotIndex =
-          shotIndex;
-
-        throw error;
-      }
 
       updateJob(
         jobId,
@@ -2298,7 +3770,8 @@ async function processRender(
                 (
                   index /
                   scenes.length
-                ) * 15
+                ) *
+                15
               )
             ),
 
@@ -2307,13 +3780,17 @@ async function processRender(
         }
       );
 
+
       const destination =
         path.join(
           imageDir,
           `visual_${String(index + 1).padStart(3, '0')}.img`
         );
 
+
       await downloadFile({
+        jobId,
+
         url:
           imageUrl,
 
@@ -2327,26 +3804,40 @@ async function processRender(
         shotIndex
       });
 
+
       imagePaths.push(
         destination
       );
     }
 
+
     // --------------------------------------------------------
-    // AUDIO
+    // AUDIO DOWNLOAD
     // --------------------------------------------------------
 
-    const audioPaths = [];
-    const audioPartDurations = [];
+    const audioPaths =
+      [];
+
+    const audioPartDurations =
+      [];
+
 
     for (
       let index = 0;
-      index < audioParts.length;
+      index <
+        audioParts.length;
       index++
     ) {
 
+      assertJobActive(
+        jobId
+      );
+
+
       const part =
-        audioParts[index] ?? {};
+        audioParts[index] ??
+        {};
+
 
       const partIndex =
         safeNumber(
@@ -2354,23 +3845,12 @@ async function processRender(
           index + 1
         );
 
+
       const audioUrl =
         cleanText(
           part.audio_url
         );
 
-      if (!audioUrl) {
-
-        const error =
-          new Error(
-            `Audio Part ${partIndex} missing audio_url`
-          );
-
-        error.partIndex =
-          partIndex;
-
-        throw error;
-      }
 
       updateJob(
         jobId,
@@ -2383,7 +3863,8 @@ async function processRender(
                 (
                   index /
                   audioParts.length
-                ) * 5
+                ) *
+                5
               )
             ),
 
@@ -2392,13 +3873,17 @@ async function processRender(
         }
       );
 
+
       const destination =
         path.join(
           audioDir,
           `audio_${String(partIndex).padStart(3, '0')}.mp3`
         );
 
+
       await downloadFile({
+        jobId,
+
         url:
           audioUrl,
 
@@ -2410,16 +3895,21 @@ async function processRender(
         partIndex
       });
 
+
       const duration =
         await getMediaDuration(
+          jobId,
           destination
         );
+
 
       audioPaths.push(
         destination
       );
 
+
       audioPartDurations.push({
+
         part_index:
           partIndex,
 
@@ -2430,18 +3920,36 @@ async function processRender(
       });
     }
 
-    // --------------------------------------------------------
-    // CONCAT NARRATION
-    // --------------------------------------------------------
 
     updateJob(
       jobId,
       {
-        progress: 25,
+        audio_part_durations:
+          audioPartDurations
+      }
+    );
+
+
+    // --------------------------------------------------------
+    // CONCAT NARRATION
+    // --------------------------------------------------------
+
+    assertJobActive(
+      jobId
+    );
+
+
+    updateJob(
+      jobId,
+      {
+        progress:
+          25,
+
         current_step:
           'concatenating_narration'
       }
     );
+
 
     const narrationAudio =
       path.join(
@@ -2449,7 +3957,10 @@ async function processRender(
         'narration_audio.m4a'
       );
 
+
     await concatAudio({
+      jobId,
+
       files:
         audioPaths,
 
@@ -2461,40 +3972,86 @@ async function processRender(
       settings
     });
 
+
     const narrationDuration =
       await getMediaDuration(
+        jobId,
         narrationAudio
       );
+
 
     updateJob(
       jobId,
       {
         narration_duration:
           Number(
-            narrationDuration.toFixed(3)
+            narrationDuration
+              .toFixed(3)
           )
       }
     );
+
 
     // --------------------------------------------------------
     // BUILD SCENE TIMELINE
     // --------------------------------------------------------
 
+    assertJobActive(
+      jobId
+    );
+
+
     updateJob(
       jobId,
       {
-        progress: 26,
+        progress:
+          26,
+
         current_step:
           'building_scene_timeline'
       }
     );
 
+
     const sceneTimeline =
       buildSceneTimeline({
         scenes,
-        narrationDuration,
-        settings
+
+        sceneTimings,
+
+        narrationDuration
       });
+
+
+    const sceneTimelineTotal =
+      sceneTimeline.reduce(
+        (
+          sum,
+          item
+        ) =>
+          sum +
+          item.duration,
+        0
+      );
+
+
+    const timelineDifference =
+      Math.abs(
+        sceneTimelineTotal -
+        narrationDuration
+      );
+
+
+    if (
+      timelineDifference >
+      0.01
+    ) {
+
+      throw new Error(
+        `Timeline QA failed: narration=${narrationDuration.toFixed(3)} scenes=${sceneTimelineTotal.toFixed(3)} difference=${timelineDifference.toFixed(3)}`
+      );
+    }
+
 
     updateJob(
       jobId,
@@ -2502,15 +4059,25 @@ async function processRender(
         scene_timeline:
           sceneTimeline.map(
             item => ({
+
               scene_number:
                 item.scene_number,
 
               narration_chars:
                 item.narration_chars,
 
+              narration_weight:
+                Number(
+                  item
+                    .narration_weight
+                    .toFixed(8)
+                ),
+
               duration:
                 Number(
-                  item.duration.toFixed(3)
+                  item
+                    .duration
+                    .toFixed(3)
                 ),
 
               shot_count:
@@ -2518,25 +4085,60 @@ async function processRender(
 
               shot_duration:
                 Number(
-                  item.shot_duration.toFixed(3)
+                  item
+                    .shot_duration
+                    .toFixed(3)
                 )
             })
-          )
+          ),
+
+        timeline_validation: {
+
+          passed:
+            true,
+
+          narration_duration:
+            Number(
+              narrationDuration
+                .toFixed(3)
+            ),
+
+          scene_duration_total:
+            Number(
+              sceneTimelineTotal
+                .toFixed(3)
+            ),
+
+          difference_seconds:
+            Number(
+              timelineDifference
+                .toFixed(6)
+            )
+        }
       }
     );
+
 
     // --------------------------------------------------------
     // FINAL AUDIO
     // --------------------------------------------------------
 
+    assertJobActive(
+      jobId
+    );
+
+
     updateJob(
       jobId,
       {
-        progress: 27,
+        progress:
+          27,
+
         current_step:
           'building_audio_timeline'
       }
     );
+
 
     const finalAudio =
       path.join(
@@ -2544,7 +4146,10 @@ async function processRender(
         'final_audio.m4a'
       );
 
+
     await buildFinalAudioTimeline({
+      jobId,
+
       narrationPath:
         narrationAudio,
 
@@ -2560,22 +4165,57 @@ async function processRender(
       settings
     });
 
+
     const finalAudioDuration =
       await getMediaDuration(
+        jobId,
         finalAudio
       );
+
 
     updateJob(
       jobId,
       {
         final_audio_duration:
           Number(
-            finalAudioDuration.toFixed(3)
+            finalAudioDuration
+              .toFixed(3)
           )
       }
     );
 
-    const videoSegments = [];
+
+    // --------------------------------------------------------
+    // EXPECTED FINAL DURATION
+    // --------------------------------------------------------
+
+    const expectedFinalDuration =
+      openingDuration +
+      narrationDuration +
+      endingDuration;
+
+
+    const audioTimelineDifference =
+      Math.abs(
+        finalAudioDuration -
+        expectedFinalDuration
+      );
+
+
+    if (
+      audioTimelineDifference >
+      MEDIA_DURATION_TOLERANCE_SECONDS
+    ) {
+
+      throw new Error(
+        `Final audio timeline mismatch. expected=${expectedFinalDuration.toFixed(3)} actual=${finalAudioDuration.toFixed(3)}`
+      );
+    }
+
+
+    const videoSegments =
+      [];
+
 
     // --------------------------------------------------------
     // OPENING
@@ -2587,14 +4227,22 @@ async function processRender(
         .enabled
     ) {
 
+      assertJobActive(
+        jobId
+      );
+
+
       updateJob(
         jobId,
         {
-          progress: 29,
+          progress:
+            29,
+
           current_step:
             'rendering_opening_disclaimer'
         }
       );
+
 
       const openingPath =
         path.join(
@@ -2602,32 +4250,51 @@ async function processRender(
           'segment_000_opening.mp4'
         );
 
+
       await createOpeningCard({
+        jobId,
+
         destination:
           openingPath,
 
         settings,
+
         presentation,
+
         fontFile
       });
+
 
       videoSegments.push(
         openingPath
       );
     }
 
+
     // --------------------------------------------------------
     // VISUALS
     // --------------------------------------------------------
 
+    const renderedShotsPerScene =
+      new Map();
+
+
     for (
       let index = 0;
-      index < scenes.length;
+      index <
+        scenes.length;
       index++
     ) {
 
+      assertJobActive(
+        jobId
+      );
+
+
       const visual =
-        scenes[index] ?? {};
+        scenes[index] ??
+        {};
+
 
       const sceneNumber =
         safeNumber(
@@ -2635,12 +4302,21 @@ async function processRender(
           null
         );
 
+
+      const shotIndex =
+        safeNumber(
+          visual.shot_index,
+          null
+        );
+
+
       const timeline =
         sceneTimeline.find(
           item =>
             item.scene_number ===
             sceneNumber
         );
+
 
       if (!timeline) {
 
@@ -2652,20 +4328,81 @@ async function processRender(
         error.sceneNumber =
           sceneNumber;
 
+        error.shotIndex =
+          shotIndex;
+
         throw error;
       }
+
+
+      const alreadyRendered =
+        renderedShotsPerScene.get(
+          sceneNumber
+        ) ||
+        0;
+
 
       let duration =
         timeline.shot_duration;
 
-      duration =
-        Math.max(
-          settings.minimum_shot_duration,
-          Math.min(
-            settings.maximum_shot_duration,
-            duration
-          )
-        );
+
+      // Last shot absorbs floating-point remainder.
+      if (
+        alreadyRendered ===
+        EXPECTED_SHOTS_PER_SCENE -
+        1
+      ) {
+
+        duration =
+          timeline.duration -
+          (
+            timeline.shot_duration *
+            (
+              EXPECTED_SHOTS_PER_SCENE -
+              1
+            )
+          );
+      }
+
+
+      if (
+        !Number.isFinite(
+          duration
+        ) ||
+        duration <= 0
+      ) {
+
+        const error =
+          new Error(
+            `Invalid duration for Scene ${sceneNumber} Shot ${shotIndex}: ${duration}`
+          );
+
+        error.sceneNumber =
+          sceneNumber;
+
+        error.shotIndex =
+          shotIndex;
+
+        throw error;
+      }
+
+
+      // ------------------------------------------------------
+      // IMPORTANT:
+      // We DO NOT clamp duration here.
+      //
+      // Clamping would change total visual duration and break
+      // narration synchronization.
+      //
+      // min/max settings are now QA information only.
+      // ------------------------------------------------------
+
+
+      renderedShotsPerScene.set(
+        sceneNumber,
+        alreadyRendered + 1
+      );
+
 
       updateJob(
         jobId,
@@ -2678,7 +4415,8 @@ async function processRender(
                 (
                   index /
                   scenes.length
-                ) * 52
+                ) *
+                52
               )
             ),
 
@@ -2687,13 +4425,17 @@ async function processRender(
         }
       );
 
+
       const segmentPath =
         path.join(
           segmentDir,
           `segment_${String(index + 1).padStart(3, '0')}.mp4`
         );
 
+
       await createVisualSegment({
+        jobId,
+
         imagePath:
           imagePaths[index],
 
@@ -2712,10 +4454,12 @@ async function processRender(
         fontFile
       });
 
+
       videoSegments.push(
         segmentPath
       );
     }
+
 
     // --------------------------------------------------------
     // ENDING
@@ -2727,14 +4471,22 @@ async function processRender(
         .enabled
     ) {
 
+      assertJobActive(
+        jobId
+      );
+
+
       updateJob(
         jobId,
         {
-          progress: 84,
+          progress:
+            84,
+
           current_step:
             'rendering_ending_card'
         }
       );
+
 
       const endingPath =
         path.join(
@@ -2742,32 +4494,47 @@ async function processRender(
           'segment_999_ending.mp4'
         );
 
+
       await createEndingCard({
+        jobId,
+
         destination:
           endingPath,
 
         settings,
+
         presentation,
+
         fontFile
       });
+
 
       videoSegments.push(
         endingPath
       );
     }
 
+
     // --------------------------------------------------------
     // CONCAT VIDEO
     // --------------------------------------------------------
 
+    assertJobActive(
+      jobId
+    );
+
+
     updateJob(
       jobId,
       {
-        progress: 87,
+        progress:
+          87,
+
         current_step:
           'concatenating_video'
       }
     );
+
 
     const combinedVideo =
       path.join(
@@ -2775,7 +4542,10 @@ async function processRender(
         'combined_video.mp4'
       );
 
+
     await concatVideoSegments({
+      jobId,
+
       files:
         videoSegments,
 
@@ -2787,18 +4557,73 @@ async function processRender(
       settings
     });
 
-    // --------------------------------------------------------
-    // FINAL MUX
-    // --------------------------------------------------------
+
+    const combinedVideoDuration =
+      await getMediaDuration(
+        jobId,
+        combinedVideo
+      );
+
 
     updateJob(
       jobId,
       {
-        progress: 92,
+        combined_video_duration:
+          Number(
+            combinedVideoDuration
+              .toFixed(3)
+          )
+      }
+    );
+
+
+    // --------------------------------------------------------
+    // VIDEO TIMELINE QA
+    // --------------------------------------------------------
+
+    const videoTimelineDifference =
+      Math.abs(
+        combinedVideoDuration -
+        expectedFinalDuration
+      );
+
+
+    if (
+      videoTimelineDifference >
+      MEDIA_DURATION_TOLERANCE_SECONDS
+    ) {
+
+      throw new Error(
+        [
+          'Combined video duration mismatch',
+          `expected=${expectedFinalDuration.toFixed(3)}`,
+          `actual=${combinedVideoDuration.toFixed(3)}`,
+          `difference=${videoTimelineDifference.toFixed(3)}`
+        ].join(' | ')
+      );
+    }
+
+
+    // --------------------------------------------------------
+    // FINAL MUX
+    // --------------------------------------------------------
+
+    assertJobActive(
+      jobId
+    );
+
+
+    updateJob(
+      jobId,
+      {
+        progress:
+          92,
+
         current_step:
           'muxing_final_video'
       }
     );
+
 
     const outputPath =
       path.join(
@@ -2806,7 +4631,10 @@ async function processRender(
         `${jobId}.mp4`
       );
 
+
     await muxFinal({
+      jobId,
+
       videoPath:
         combinedVideo,
 
@@ -2819,56 +4647,160 @@ async function processRender(
       settings
     });
 
+
+    assertJobActive(
+      jobId
+    );
+
+
+    // --------------------------------------------------------
+    // FINAL FILE QA
+    // --------------------------------------------------------
+
     const stat =
       await fsp.stat(
         outputPath
       );
 
-    if (stat.size < 10000) {
+
+    if (
+      stat.size <
+      10000
+    ) {
+
       throw new Error(
         `Final output is unexpectedly small: ${stat.size} bytes`
       );
     }
 
+
+    const finalVideoDuration =
+      await getMediaDuration(
+        jobId,
+        outputPath
+      );
+
+
+    const finalDurationDifference =
+      Math.abs(
+        finalVideoDuration -
+        finalAudioDuration
+      );
+
+
+    if (
+      finalDurationDifference >
+      MEDIA_DURATION_TOLERANCE_SECONDS
+    ) {
+
+      throw new Error(
+        [
+          'Final A/V duration QA failed',
+          `video=${finalVideoDuration.toFixed(3)}`,
+          `audio=${finalAudioDuration.toFixed(3)}`,
+          `difference=${finalDurationDifference.toFixed(3)}`
+        ].join(' | ')
+      );
+    }
+
+
+    assertJobActive(
+      jobId
+    );
+
+
     updateJob(
       jobId,
       {
-        status: 'completed',
-        progress: 100,
-        current_step: 'completed',
-        completed_at: nowIso(),
-        output_path: outputPath,
-        output_size_bytes: stat.size,
-        error: null
+        status:
+          'completed',
+
+        progress:
+          100,
+
+        current_step:
+          'completed',
+
+        completed_at:
+          nowIso(),
+
+        output_path:
+          outputPath,
+
+        output_size_bytes:
+          stat.size,
+
+        final_video_duration:
+          Number(
+            finalVideoDuration
+              .toFixed(3)
+          ),
+
+        error:
+          null
       }
     );
+
+
+    // --------------------------------------------------------
+    // CLEAN WORK DIRECTORY
+    // --------------------------------------------------------
 
     try {
 
       await fsp.rm(
         workDir,
         {
-          recursive: true,
-          force: true
+          recursive:
+            true,
+
+          force:
+            true
         }
       );
 
     } catch (_) {}
 
+
   } catch (error) {
+
+    const job =
+      jobs.get(
+        jobId
+      );
+
+
+    // Timeout handler owns timeout state.
+    if (
+      job?.timeout ===
+      true
+    ) {
+
+      console.error(
+        `[${jobId}] Render stopped after timeout`,
+        error.message
+      );
+
+      return;
+    }
+
 
     updateJob(
       jobId,
       {
-        status: 'failed',
-        current_step: 'failed',
-        completed_at: nowIso(),
+        status:
+          'failed',
+
+        current_step:
+          'failed',
+
+        completed_at:
+          nowIso(),
 
         error:
           cleanText(
             error.message
-          )
-          ||
+          ) ||
           'Unknown render error',
 
         failed_scene_number:
@@ -2889,12 +4821,14 @@ async function processRender(
       }
     );
 
+
     console.error(
       `[${jobId}] Render failed`,
       error
     );
   }
 }
+
 
 // ============================================================
 // HARD TIMEOUT
@@ -2905,35 +4839,128 @@ async function processRenderWithTimeout(
   payload
 ) {
 
+  const job =
+    jobs.get(
+      jobId
+    );
+
+  if (!job) {
+    return;
+  }
+
+
+  const requestedSeconds =
+    safeNumber(
+      payload
+        ?.render_settings
+        ?.hard_timeout_seconds,
+      HARD_TIMEOUT_MINUTES *
+      60
+    );
+
+
+  const timeoutSeconds =
+    Math.max(
+      60,
+      Math.min(
+        HARD_TIMEOUT_MINUTES *
+        60,
+        requestedSeconds
+      )
+    );
+
+
   let timeoutHandle;
+
 
   const timeoutPromise =
     new Promise(
-      (_resolve, reject) => {
+      (
+        _resolve,
+        reject
+      ) => {
 
         timeoutHandle =
           setTimeout(
             () => {
 
+              const currentJob =
+                jobs.get(
+                  jobId
+                );
+
+              if (!currentJob) {
+
+                reject(
+                  new Error(
+                    'Render job disappeared'
+                  )
+                );
+
+                return;
+              }
+
+
+              currentJob.timeout =
+                true;
+
+
+              currentJob.status =
+                'failed';
+
+
+              currentJob.current_step =
+                'timeout';
+
+
+              currentJob.completed_at =
+                nowIso();
+
+
+              currentJob.error =
+                `Render hard timeout after ${Math.round(timeoutSeconds / 60)} minutes`;
+
+
+              try {
+
+                currentJob
+                  .abort_controller
+                  ?.abort();
+
+              } catch (_) {}
+
+
+              killActiveChildren(
+                jobId
+              );
+
+
               const error =
                 new Error(
-                  `Render hard timeout after ${HARD_TIMEOUT_MINUTES} minutes`
+                  currentJob.error
                 );
+
 
               error.isTimeout =
                 true;
 
-              reject(error);
+
+              reject(
+                error
+              );
 
             },
-            HARD_TIMEOUT_MS
+            timeoutSeconds *
+            1000
           );
       }
     );
 
+
   try {
 
     await Promise.race([
+
       processRender(
         jobId,
         payload
@@ -2942,23 +4969,31 @@ async function processRenderWithTimeout(
       timeoutPromise
     ]);
 
+
   } catch (error) {
 
-    updateJob(
-      jobId,
-      {
-        status: 'failed',
-        current_step: 'failed',
-        completed_at: nowIso(),
+    const currentJob =
+      jobs.get(
+        jobId
+      );
 
-        error:
-          cleanText(
-            error.message
-          ),
 
-        timeout: true
-      }
-    );
+    if (
+      currentJob?.timeout
+    ) {
+
+      console.error(
+        `[${jobId}] ${currentJob.error}`
+      );
+
+    } else {
+
+      console.error(
+        `[${jobId}] Render wrapper error`,
+        error
+      );
+    }
+
 
   } finally {
 
@@ -2967,6 +5002,7 @@ async function processRenderWithTimeout(
     );
   }
 }
+
 
 // ============================================================
 // HEALTH
@@ -2983,8 +5019,11 @@ app.get(
 
       await ensureDirectories();
 
+
       res.json({
-        ok: true,
+
+        ok:
+          true,
 
         service:
           'Midnight Files Render Server',
@@ -2999,7 +5038,10 @@ app.get(
           'audio-driven-scene-weighted',
 
         scene_weight:
-          'narration-character-count',
+          'payload.scene_timings.narration_weight',
+
+        timing_source:
+          'ffprobe narration duration + scene narration weights',
 
         audio_timeline:
           'opening-silence + narration + ending-silence',
@@ -3010,32 +5052,72 @@ app.get(
         fps_default:
           24,
 
+        expected_scenes:
+          EXPECTED_SCENES,
+
+        expected_visuals:
+          EXPECTED_VISUALS,
+
+        shots_per_scene:
+          EXPECTED_SHOTS_PER_SCENE,
+
         hard_timeout_minutes:
           HARD_TIMEOUT_MINUTES,
 
+        timeout_process_kill:
+          true,
+
+        download_retry:
+          {
+            enabled:
+              true,
+
+            max_attempts:
+              DOWNLOAD_MAX_ATTEMPTS
+          },
+
+        duration_qa:
+          true,
+
         presentation_support: {
-          opening_disclaimer: true,
-          reconstruction_label: true,
-          date_location: true,
-          theory_disclaimer: true,
-          ending_card: true
+
+          opening_disclaimer:
+            true,
+
+          reconstruction_label:
+            true,
+
+          date_location:
+            true,
+
+          theory_disclaimer:
+            true,
+
+          ending_card:
+            true
         },
 
         time:
           nowIso()
       });
 
+
     } catch (error) {
 
       res
         .status(500)
         .json({
-          ok: false,
-          error: error.message
+
+          ok:
+            false,
+
+          error:
+            error.message
         });
     }
   }
 );
+
 
 // ============================================================
 // CREATE JOB
@@ -3052,50 +5134,69 @@ app.post(
 
       await ensureDirectories();
 
+
       const payload =
-        req.body ?? {};
+        req.body ??
+        {};
+
 
       const scenes =
         safeArray(
           payload.scenes
         );
 
+
       const audioParts =
         safeArray(
           payload.audio_parts
         );
 
-      if (!scenes.length) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'scenes is required'
-          });
-      }
 
-      if (!audioParts.length) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'audio_parts is required'
-          });
-      }
+      // Validate before creating expensive background work.
+      validateScenes(
+        scenes
+      );
+
+
+      validateAudioParts(
+        audioParts
+      );
+
+
+      normalizeSceneTimings({
+        input:
+          payload.scene_timings,
+
+        scenes
+      });
+
 
       const jobId =
         createJobId();
 
+
       const job = {
-        job_id: jobId,
 
-        status: 'queued',
-        progress: 0,
-        current_step: 'queued',
+        job_id:
+          jobId,
 
-        created_at: nowIso(),
-        started_at: null,
-        completed_at: null,
+        status:
+          'queued',
+
+        progress:
+          0,
+
+        current_step:
+          'queued',
+
+        created_at:
+          nowIso(),
+
+        started_at:
+          null,
+
+        completed_at:
+          null,
 
         total_visuals:
           scenes.length,
@@ -3103,31 +5204,70 @@ app.post(
         total_audio_parts:
           audioParts.length,
 
-        narration_duration: null,
-        final_audio_duration: null,
+        narration_duration:
+          null,
 
-        opening_duration: null,
-        ending_duration: null,
+        final_audio_duration:
+          null,
 
-        scene_timeline: null,
+        combined_video_duration:
+          null,
 
-        output_path: null,
-        output_size_bytes: null,
+        final_video_duration:
+          null,
 
-        error: null,
+        opening_duration:
+          null,
 
-        failed_scene_number: null,
-        failed_shot_index: null,
-        failed_audio_part: null,
-        failed_url: null,
+        ending_duration:
+          null,
 
-        timeout: false
+        scene_timeline:
+          null,
+
+        timeline_validation:
+          null,
+
+        audio_part_durations:
+          null,
+
+        output_path:
+          null,
+
+        output_size_bytes:
+          null,
+
+        error:
+          null,
+
+        failed_scene_number:
+          null,
+
+        failed_shot_index:
+          null,
+
+        failed_audio_part:
+          null,
+
+        failed_url:
+          null,
+
+        timeout:
+          false,
+
+        abort_controller:
+          new AbortController(),
+
+        active_children:
+          new Set()
       };
+
 
       jobs.set(
         jobId,
         job
       );
+
 
       setImmediate(
         () => {
@@ -3135,22 +5275,29 @@ app.post(
           processRenderWithTimeout(
             jobId,
             payload
-          ).catch(
-            error => {
-              console.error(
-                `[${jobId}] Unhandled render error`,
-                error
-              );
-            }
-          );
+          )
+            .catch(
+              error => {
+
+                console.error(
+                  `[${jobId}] Unhandled render error`,
+                  error
+                );
+              }
+            );
         }
       );
+
 
       return res
         .status(202)
         .json({
-          job_id: jobId,
-          status: 'queued',
+
+          job_id:
+            jobId,
+
+          status:
+            'queued',
 
           status_url:
             `/status/${jobId}`,
@@ -3162,6 +5309,7 @@ app.post(
             SERVER_VERSION
         });
 
+
     } catch (error) {
 
       console.error(
@@ -3169,15 +5317,24 @@ app.post(
         error
       );
 
+
       return res
-        .status(500)
+        .status(400)
         .json({
+
           error:
-            error.message
+            cleanText(
+              error.message
+            ) ||
+            'Invalid render payload',
+
+          version:
+            SERVER_VERSION
         });
     }
   }
 );
+
 
 // ============================================================
 // STATUS
@@ -3195,20 +5352,27 @@ app.get(
         req.params.jobId
       );
 
+
     if (!job) {
+
       return res
         .status(404)
         .json({
+
           error:
             'Job not found'
         });
     }
 
+
     return res.json(
-      publicJob(job)
+      publicJob(
+        job
+      )
     );
   }
 );
+
 
 // ============================================================
 // DOWNLOAD
@@ -3226,22 +5390,28 @@ app.get(
         req.params.jobId
       );
 
+
     if (!job) {
+
       return res
         .status(404)
         .json({
+
           error:
             'Job not found'
         });
     }
 
+
     if (
       job.status !==
       'completed'
     ) {
+
       return res
         .status(409)
         .json({
+
           error:
             'Render is not completed',
 
@@ -3250,17 +5420,22 @@ app.get(
         });
     }
 
+
     const outputPath =
       job.output_path;
 
+
     if (!outputPath) {
+
       return res
         .status(404)
         .json({
+
           error:
             'Output path missing'
         });
     }
+
 
     try {
 
@@ -3268,15 +5443,18 @@ app.get(
         outputPath
       );
 
+
     } catch (_) {
 
       return res
         .status(404)
         .json({
+
           error:
             'Output file not found'
         });
     }
+
 
     return res.download(
       outputPath,
@@ -3284,6 +5462,7 @@ app.get(
     );
   }
 );
+
 
 // ============================================================
 // ROOT
@@ -3297,6 +5476,7 @@ app.get(
   ) => {
 
     res.json({
+
       service:
         'Midnight Files Render Server',
 
@@ -3304,6 +5484,7 @@ app.get(
         SERVER_VERSION,
 
       endpoints: {
+
         health:
           'GET /health',
 
@@ -3319,6 +5500,7 @@ app.get(
     });
   }
 );
+
 
 // ============================================================
 // START
@@ -3354,11 +5536,19 @@ ensureDirectories()
           );
 
           console.log(
-            'Timing: audio-driven-scene-weighted'
+            'Timing: ffprobe + payload scene timings'
           );
 
           console.log(
-            'Scene weight: narration character count'
+            `Scenes: ${EXPECTED_SCENES}`
+          );
+
+          console.log(
+            `Visuals: ${EXPECTED_VISUALS}`
+          );
+
+          console.log(
+            `Shots per scene: ${EXPECTED_SHOTS_PER_SCENE}`
           );
 
           console.log(
@@ -3371,6 +5561,14 @@ ensureDirectories()
 
           console.log(
             `Hard timeout: ${HARD_TIMEOUT_MINUTES} minutes`
+          );
+
+          console.log(
+            'FFmpeg timeout kill: enabled'
+          );
+
+          console.log(
+            'Duration QA: enabled'
           );
 
           console.log(
