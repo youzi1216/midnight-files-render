@@ -24,7 +24,7 @@ const PORT =
   Number(process.env.PORT || 3000);
 
 const SERVER_VERSION =
-  'midnight-files-render-v2.2.0-universal';
+  'midnight-files-render-v2.2.1-universal';
 
 const HARD_TIMEOUT_MINUTES =
   60;
@@ -33,6 +33,12 @@ const HARD_TIMEOUT_MS =
   HARD_TIMEOUT_MINUTES *
   60 *
   1000;
+
+const DEFAULT_PROCESS_TIMEOUT_MS =
+  15 * 60 * 1000;
+
+const CARD_PROCESS_TIMEOUT_MS =
+  2 * 60 * 1000;
 
 const EXPECTED_SHOTS_PER_SCENE =
   2;
@@ -543,8 +549,24 @@ function runProcess(
           ?.abort_controller
           ?.signal;
 
+      const {
+        timeoutMs = DEFAULT_PROCESS_TIMEOUT_MS,
+        label = command,
+        ...spawnOptions
+      } = options ?? {};
+
+      const startedAt =
+        Date.now();
+
+      console.log(
+        `[${jobId}] PROCESS START label=${label} command=${command} timeout_s=${Math.round(timeoutMs / 1000)}`
+      );
+
       let settled =
         false;
+
+      let processTimeoutHandle =
+        null;
 
       const child =
         spawn(
@@ -556,7 +578,7 @@ function runProcess(
               'pipe',
               'pipe'
             ],
-            ...options
+            ...spawnOptions
           }
         );
 
@@ -570,6 +592,11 @@ function runProcess(
 
       const cleanup =
         () => {
+
+          if (processTimeoutHandle) {
+            clearTimeout(processTimeoutHandle);
+            processTimeoutHandle = null;
+          }
 
           unregisterChild(
             jobId,
@@ -599,6 +626,13 @@ function runProcess(
           settled =
             true;
 
+          const elapsedSeconds =
+            (Date.now() - startedAt) / 1000;
+
+          console.error(
+            `[${jobId}] PROCESS FAIL label=${label} elapsed_s=${elapsedSeconds.toFixed(3)} error=${cleanText(error?.message)}`
+          );
+
           cleanup();
 
           reject(error);
@@ -614,6 +648,13 @@ function runProcess(
 
           settled =
             true;
+
+          const elapsedSeconds =
+            (Date.now() - startedAt) / 1000;
+
+          console.log(
+            `[${jobId}] PROCESS DONE label=${label} elapsed_s=${elapsedSeconds.toFixed(3)}`
+          );
 
           cleanup();
 
@@ -676,6 +717,36 @@ function runProcess(
             once: true
           }
         );
+      }
+
+
+      if (
+        Number.isFinite(timeoutMs) &&
+        timeoutMs > 0
+      ) {
+
+        processTimeoutHandle =
+          setTimeout(
+            () => {
+
+              try {
+                if (!child.killed) {
+                  child.kill('SIGKILL');
+                }
+              } catch (_) {}
+
+              const error =
+                new Error(
+                  `${label} process timeout after ${Math.round(timeoutMs / 1000)} seconds`
+                );
+
+              error.isProcessTimeout =
+                true;
+
+              finishReject(error);
+            },
+            timeoutMs
+          );
       }
 
 
@@ -771,7 +842,6 @@ function runProcess(
     }
   );
 }
-
 
 // ============================================================
 // DOWNLOAD
@@ -2511,8 +2581,23 @@ async function createOpeningCard({
       '-movflags',
       '+faststart',
 
+      '-t',
+      String(opening.duration),
+
+      '-frames:v',
+      String(
+        Math.max(
+          1,
+          Math.ceil(opening.duration * fps)
+        )
+      ),
+
       destination
-    ]
+    ],
+    {
+      timeoutMs: CARD_PROCESS_TIMEOUT_MS,
+      label: 'opening_card_ffmpeg'
+    }
   );
 }
 
@@ -2655,8 +2740,23 @@ async function createEndingCard({
       '-movflags',
       '+faststart',
 
+      '-t',
+      String(ending.duration),
+
+      '-frames:v',
+      String(
+        Math.max(
+          1,
+          Math.ceil(ending.duration * fps)
+        )
+      ),
+
       destination
-    ]
+    ],
+    {
+      timeoutMs: CARD_PROCESS_TIMEOUT_MS,
+      label: 'ending_card_ffmpeg'
+    }
   );
 }
 
@@ -4713,25 +4813,15 @@ async function processRenderWithTimeout(
   }
 
 
-  const requestedSeconds =
-    safeNumber(
-      payload
-        ?.render_settings
-        ?.hard_timeout_seconds,
-      HARD_TIMEOUT_MINUTES *
-      60
-    );
-
-
+  // Server is authoritative for render-job lifetime.
+  // Upstream/n8n payload cannot shorten the job timeout.
   const timeoutSeconds =
-    Math.max(
-      60,
-      Math.min(
-        HARD_TIMEOUT_MINUTES *
-        60,
-        requestedSeconds
-      )
-    );
+    HARD_TIMEOUT_MINUTES *
+    60;
+
+  console.log(
+    `[${jobId}] HARD TIMEOUT armed effective_seconds=${timeoutSeconds} effective_minutes=${HARD_TIMEOUT_MINUTES}`
+  );
 
 
   let timeoutHandle;
@@ -5438,6 +5528,10 @@ ensureDirectories()
 
           console.log(
             `FFmpeg timeout kill: enabled / visual concurrency: ${VISUAL_RENDER_CONCURRENCY}`
+          );
+
+          console.log(
+            `Process timeout: default=${Math.round(DEFAULT_PROCESS_TIMEOUT_MS / 1000)}s / cards=${Math.round(CARD_PROCESS_TIMEOUT_MS / 1000)}s`
           );
 
           console.log(
