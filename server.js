@@ -24,25 +24,27 @@ const PORT =
   Number(process.env.PORT || 3000);
 
 const SERVER_VERSION =
-  'midnight-files-render-v2.1.0';
+  'midnight-files-render-v2.2.0-universal';
 
 const HARD_TIMEOUT_MINUTES =
-  35;
+  60;
 
 const HARD_TIMEOUT_MS =
   HARD_TIMEOUT_MINUTES *
   60 *
   1000;
 
-const EXPECTED_SCENES =
-  16;
-
 const EXPECTED_SHOTS_PER_SCENE =
   2;
 
-const EXPECTED_VISUALS =
-  EXPECTED_SCENES *
-  EXPECTED_SHOTS_PER_SCENE;
+const MIN_SCENES =
+  1;
+
+const MAX_SCENES =
+  40;
+
+const VISUAL_RENDER_CONCURRENCY =
+  Math.max(1, Math.min(4, Number(process.env.VISUAL_RENDER_CONCURRENCY || 2)));
 
 const MIN_AUDIO_PARTS =
   3;
@@ -1598,7 +1600,7 @@ function normalizePresentation(
         cleanText(
           project.ending_title
         ) ||
-        'FLANNAN ISLES',
+        '異常夜話 Midnight Files',
 
       subtitle:
         cleanText(
@@ -1607,7 +1609,7 @@ function normalizePresentation(
         cleanText(
           project.ending_subtitle
         ) ||
-        '1900',
+        '',
 
       footer:
         cleanText(
@@ -1616,7 +1618,7 @@ function normalizePresentation(
         cleanText(
           project.ending_footer
         ) ||
-        '三名燈塔守衛失蹤，確切經過至今無法直接證實'
+        '案件資料與情境重建內容請以本集來源說明為準'
     }
   };
 }
@@ -1630,153 +1632,92 @@ function validateScenes(
   scenes
 ) {
 
-  if (
-    scenes.length !==
-    EXPECTED_VISUALS
-  ) {
+  if (!Array.isArray(scenes) || scenes.length < EXPECTED_SHOTS_PER_SCENE) {
+    throw new Error('scenes must contain visual items');
+  }
 
+  if (scenes.length % EXPECTED_SHOTS_PER_SCENE !== 0) {
     throw new Error(
-      `Expected ${EXPECTED_VISUALS} visuals, received ${scenes.length}`
+      `Visual count ${scenes.length} is not divisible by ${EXPECTED_SHOTS_PER_SCENE} shots per scene`
     );
   }
 
-  const keySet =
-    new Set();
+  const expectedScenes = scenes.length / EXPECTED_SHOTS_PER_SCENE;
 
-  const renderIndexSet =
-    new Set();
-
-  for (
-    const visual of
-    scenes
+  if (
+    !Number.isInteger(expectedScenes) ||
+    expectedScenes < MIN_SCENES ||
+    expectedScenes > MAX_SCENES
   ) {
+    throw new Error(
+      `Scene count must be ${MIN_SCENES}-${MAX_SCENES}; received ${expectedScenes}`
+    );
+  }
 
-    const sceneNumber =
-      safeNumber(
-        visual.scene_number,
-        null
-      );
+  const keySet = new Set();
+  const renderIndexSet = new Set();
 
-    const shotIndex =
-      safeNumber(
-        visual.shot_index ??
-        visual.shot_number,
-        null
-      );
-
-    const renderIndex =
-      safeNumber(
-        visual.render_index,
-        null
-      );
+  for (const visual of scenes) {
+    const sceneNumber = safeNumber(visual.scene_number, null);
+    const shotIndex = safeNumber(
+      visual.shot_index ?? visual.shot_number,
+      null
+    );
+    const renderIndex = safeNumber(visual.render_index, null);
 
     if (
-      !Number.isInteger(
-        sceneNumber
-      ) ||
+      !Number.isInteger(sceneNumber) ||
       sceneNumber < 1 ||
-      sceneNumber >
-        EXPECTED_SCENES
+      sceneNumber > expectedScenes
     ) {
-
-      throw new Error(
-        `Invalid scene_number: ${sceneNumber}`
-      );
+      throw new Error(`Invalid scene_number: ${sceneNumber}`);
     }
 
     if (
-      !Number.isInteger(
-        shotIndex
-      ) ||
+      !Number.isInteger(shotIndex) ||
       shotIndex < 1 ||
-      shotIndex >
-        EXPECTED_SHOTS_PER_SCENE
+      shotIndex > EXPECTED_SHOTS_PER_SCENE
     ) {
-
       throw new Error(
         `Invalid shot_index at Scene ${sceneNumber}: ${shotIndex}`
       );
     }
 
-    const key =
-      `${sceneNumber}-${shotIndex}`;
-
-    if (
-      keySet.has(
-        key
-      )
-    ) {
-
+    const key = `${sceneNumber}-${shotIndex}`;
+    if (keySet.has(key)) {
       throw new Error(
         `Duplicate visual: Scene ${sceneNumber} Shot ${shotIndex}`
       );
     }
-
-    keySet.add(
-      key
-    );
+    keySet.add(key);
 
     if (
-      !Number.isInteger(
-        renderIndex
-      ) ||
+      !Number.isInteger(renderIndex) ||
       renderIndex < 1 ||
-      renderIndex >
-        EXPECTED_VISUALS
+      renderIndex > scenes.length
     ) {
-
-      throw new Error(
-        `Invalid render_index: ${renderIndex}`
-      );
+      throw new Error(`Invalid render_index: ${renderIndex}`);
     }
 
-    if (
-      renderIndexSet.has(
-        renderIndex
-      )
-    ) {
-
-      throw new Error(
-        `Duplicate render_index: ${renderIndex}`
-      );
+    if (renderIndexSet.has(renderIndex)) {
+      throw new Error(`Duplicate render_index: ${renderIndex}`);
     }
+    renderIndexSet.add(renderIndex);
 
-    renderIndexSet.add(
-      renderIndex
-    );
-
-    if (
-      !cleanText(
-        visual.image_url
-      )
-    ) {
-
+    if (!cleanText(visual.image_url)) {
       throw new Error(
         `Scene ${sceneNumber} Shot ${shotIndex} missing image_url`
       );
     }
   }
 
-  for (
-    let sceneNumber = 1;
-    sceneNumber <=
-    EXPECTED_SCENES;
-    sceneNumber++
-  ) {
-
+  for (let sceneNumber = 1; sceneNumber <= expectedScenes; sceneNumber++) {
     for (
       let shotIndex = 1;
-      shotIndex <=
-      EXPECTED_SHOTS_PER_SCENE;
+      shotIndex <= EXPECTED_SHOTS_PER_SCENE;
       shotIndex++
     ) {
-
-      if (
-        !keySet.has(
-          `${sceneNumber}-${shotIndex}`
-        )
-      ) {
-
+      if (!keySet.has(`${sceneNumber}-${shotIndex}`)) {
         throw new Error(
           `Missing Scene ${sceneNumber} Shot ${shotIndex}`
         );
@@ -1784,24 +1725,16 @@ function validateScenes(
     }
   }
 
-  for (
-    let index = 1;
-    index <=
-    EXPECTED_VISUALS;
-    index++
-  ) {
-
-    if (
-      !renderIndexSet.has(
-        index
-      )
-    ) {
-
-      throw new Error(
-        `Missing render_index ${index}`
-      );
+  for (let index = 1; index <= scenes.length; index++) {
+    if (!renderIndexSet.has(index)) {
+      throw new Error(`Missing render_index ${index}`);
     }
   }
+
+  return {
+    expectedScenes,
+    expectedVisuals: scenes.length
+  };
 }
 
 
@@ -1977,6 +1910,11 @@ function normalizeSceneTimings({
       input
     );
 
+  const expectedScenes = Math.max(
+    1,
+    ...scenes.map(visual => safeNumber(visual.scene_number, 0))
+  );
+
   const fallbackMap =
     new Map();
 
@@ -2025,7 +1963,7 @@ function normalizeSceneTimings({
 
   if (
     supplied.length ===
-    EXPECTED_SCENES
+    expectedScenes
   ) {
 
     normalized =
@@ -2061,7 +1999,7 @@ function normalizeSceneTimings({
       Array.from(
         {
           length:
-            EXPECTED_SCENES
+            expectedScenes
         },
         (
           _,
@@ -2123,7 +2061,7 @@ function normalizeSceneTimings({
     ) {
 
       throw new Error(
-        `scene_timings must contain Scene 1-${EXPECTED_SCENES}; expected ${expected}, received ${item.scene_number}`
+        `scene_timings must contain Scene 1-${expectedScenes}; expected ${expected}, received ${item.scene_number}`
       );
     }
 
@@ -4278,187 +4216,113 @@ async function processRender(
     const renderedShotsPerScene =
       new Map();
 
+    const renderedSegmentPaths =
+      new Array(scenes.length);
 
-    for (
-      let index = 0;
-      index <
-        scenes.length;
-      index++
-    ) {
+    let nextVisualIndex = 0;
+    let completedVisuals = 0;
 
-      assertJobActive(
-        jobId
-      );
+    async function renderVisualWorker() {
+      while (true) {
+        assertJobActive(jobId);
 
+        const index = nextVisualIndex++;
+        if (index >= scenes.length) {
+          return;
+        }
 
-      const visual =
-        scenes[index] ??
-        {};
-
-
-      const sceneNumber =
-        safeNumber(
-          visual.scene_number,
-          null
+        const visual = scenes[index] ?? {};
+        const sceneNumber = safeNumber(visual.scene_number, null);
+        const shotIndex = safeNumber(visual.shot_index, null);
+        const timeline = sceneTimeline.find(
+          item => item.scene_number === sceneNumber
         );
 
-
-      const shotIndex =
-        safeNumber(
-          visual.shot_index,
-          null
-        );
-
-
-      const timeline =
-        sceneTimeline.find(
-          item =>
-            item.scene_number ===
-            sceneNumber
-        );
-
-
-      if (!timeline) {
-
-        const error =
-          new Error(
+        if (!timeline) {
+          const error = new Error(
             `No timeline found for Scene ${sceneNumber}`
           );
+          error.sceneNumber = sceneNumber;
+          error.shotIndex = shotIndex;
+          throw error;
+        }
 
-        error.sceneNumber =
-          sceneNumber;
-
-        error.shotIndex =
-          shotIndex;
-
-        throw error;
-      }
-
-
-      const alreadyRendered =
-        renderedShotsPerScene.get(
-          sceneNumber
-        ) ||
-        0;
-
-
-      let duration =
-        timeline.shot_duration;
-
-
-      // Last shot absorbs floating-point remainder.
-      if (
-        alreadyRendered ===
-        EXPECTED_SHOTS_PER_SCENE -
-        1
-      ) {
-
-        duration =
-          timeline.duration -
-          (
+        // Duration is deterministic from shot index; no shared mutable
+        // counter is needed, so workers can render safely in parallel.
+        let duration = timeline.shot_duration;
+        if (shotIndex === EXPECTED_SHOTS_PER_SCENE) {
+          duration = timeline.duration -
             timeline.shot_duration *
-            (
-              EXPECTED_SHOTS_PER_SCENE -
-              1
-            )
-          );
-      }
+            (EXPECTED_SHOTS_PER_SCENE - 1);
+        }
 
-
-      if (
-        !Number.isFinite(
-          duration
-        ) ||
-        duration <= 0
-      ) {
-
-        const error =
-          new Error(
+        if (!Number.isFinite(duration) || duration <= 0) {
+          const error = new Error(
             `Invalid duration for Scene ${sceneNumber} Shot ${shotIndex}: ${duration}`
           );
-
-        error.sceneNumber =
-          sceneNumber;
-
-        error.shotIndex =
-          shotIndex;
-
-        throw error;
-      }
-
-
-      // ------------------------------------------------------
-      // IMPORTANT:
-      // We DO NOT clamp duration here.
-      //
-      // Clamping would change total visual duration and break
-      // narration synchronization.
-      //
-      // min/max settings are now QA information only.
-      // ------------------------------------------------------
-
-
-      renderedShotsPerScene.set(
-        sceneNumber,
-        alreadyRendered + 1
-      );
-
-
-      updateJob(
-        jobId,
-        {
-          progress:
-            Math.min(
-              82,
-              30 +
-              Math.floor(
-                (
-                  index /
-                  scenes.length
-                ) *
-                52
-              )
-            ),
-
-          current_step:
-            `rendering_visual_${index + 1}_of_${scenes.length}`
+          error.sceneNumber = sceneNumber;
+          error.shotIndex = shotIndex;
+          throw error;
         }
-      );
 
-
-      const segmentPath =
-        path.join(
+        const segmentPath = path.join(
           segmentDir,
           `segment_${String(index + 1).padStart(3, '0')}.mp4`
         );
 
+        await createVisualSegment({
+          jobId,
+          imagePath: imagePaths[index],
+          destination: segmentPath,
+          duration,
+          visual,
+          settings,
+          presentationSettings: presentation,
+          fontFile
+        });
 
-      await createVisualSegment({
-        jobId,
+        renderedSegmentPaths[index] = segmentPath;
+        renderedShotsPerScene.set(
+          sceneNumber,
+          (renderedShotsPerScene.get(sceneNumber) || 0) + 1
+        );
 
-        imagePath:
-          imagePaths[index],
-
-        destination:
-          segmentPath,
-
-        duration,
-
-        visual,
-
-        settings,
-
-        presentationSettings:
-          presentation,
-
-        fontFile
-      });
-
-
-      videoSegments.push(
-        segmentPath
-      );
+        completedVisuals++;
+        updateJob(jobId, {
+          progress: Math.min(
+            82,
+            30 + Math.floor((completedVisuals / scenes.length) * 52)
+          ),
+          current_step:
+            `rendering_visuals_${completedVisuals}_of_${scenes.length}`
+        });
+      }
     }
+
+    const workerCount = Math.min(
+      VISUAL_RENDER_CONCURRENCY,
+      scenes.length
+    );
+
+    await Promise.all(
+      Array.from(
+        { length: workerCount },
+        () => renderVisualWorker()
+      )
+    );
+
+    for (let sceneNumber = 1; sceneNumber <= sceneTimeline.length; sceneNumber++) {
+      if (
+        renderedShotsPerScene.get(sceneNumber) !==
+        EXPECTED_SHOTS_PER_SCENE
+      ) {
+        throw new Error(
+          `Scene ${sceneNumber} rendered shot count mismatch`
+        );
+      }
+    }
+
+    videoSegments.push(...renderedSegmentPaths);
 
 
     // --------------------------------------------------------
@@ -5052,11 +4916,17 @@ app.get(
         fps_default:
           24,
 
-        expected_scenes:
-          EXPECTED_SCENES,
+        scene_mode:
+          'dynamic',
 
-        expected_visuals:
-          EXPECTED_VISUALS,
+        min_scenes:
+          MIN_SCENES,
+
+        max_scenes:
+          MAX_SCENES,
+
+        visuals:
+          'dynamic-scenes-x-2',
 
         shots_per_scene:
           EXPECTED_SHOTS_PER_SCENE,
@@ -5066,6 +4936,9 @@ app.get(
 
         timeout_process_kill:
           true,
+
+        visual_render_concurrency:
+          VISUAL_RENDER_CONCURRENCY,
 
         download_retry:
           {
@@ -5540,11 +5413,11 @@ ensureDirectories()
           );
 
           console.log(
-            `Scenes: ${EXPECTED_SCENES}`
+            `Scenes: dynamic (${MIN_SCENES}-${MAX_SCENES})`
           );
 
           console.log(
-            `Visuals: ${EXPECTED_VISUALS}`
+            'Visuals: dynamic scenes x 2 shots'
           );
 
           console.log(
@@ -5564,7 +5437,7 @@ ensureDirectories()
           );
 
           console.log(
-            'FFmpeg timeout kill: enabled'
+            `FFmpeg timeout kill: enabled / visual concurrency: ${VISUAL_RENDER_CONCURRENCY}`
           );
 
           console.log(
