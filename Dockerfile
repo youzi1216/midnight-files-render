@@ -1,12 +1,12 @@
 # ============================================================
 # Midnight Files Render Server
-# Node.js + FFmpeg + FFprobe + Traditional Chinese Fonts
+# Node.js + FFmpeg + FFprobe + ASS/libass + Traditional Chinese
 # ============================================================
 
 FROM node:20-bookworm-slim
 
 # ------------------------------------------------------------
-# Install FFmpeg / FFprobe / Chinese fonts
+# Install FFmpeg / FFprobe / CJK fonts / fontconfig
 # ------------------------------------------------------------
 
 RUN apt-get update \
@@ -15,7 +15,7 @@ RUN apt-get update \
         fonts-noto-cjk \
         fontconfig \
         ca-certificates \
-    && fc-cache -f -v \
+    && fc-cache -f \
     && rm -rf /var/lib/apt/lists/*
 
 # ------------------------------------------------------------
@@ -25,7 +25,7 @@ RUN apt-get update \
 WORKDIR /app
 
 # ------------------------------------------------------------
-# Install Node dependencies first
+# Install Node dependencies
 # ------------------------------------------------------------
 
 COPY package*.json ./
@@ -33,7 +33,7 @@ COPY package*.json ./
 RUN npm install --omit=dev
 
 # ------------------------------------------------------------
-# Copy application
+# Copy application source
 # ------------------------------------------------------------
 
 COPY . .
