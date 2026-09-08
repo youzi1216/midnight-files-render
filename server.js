@@ -7,6 +7,7 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
+const multer = require('multer');
 
 const app = express();
 
@@ -24,7 +25,7 @@ const PORT =
   Number(process.env.PORT || 3000);
 
 const SERVER_VERSION =
-  'midnight-files-render-v2.2.1-universal';
+  'midnight-files-render-v2.3.0-subtitles';
 
 const HARD_TIMEOUT_MINUTES =
   60;
@@ -85,8 +86,32 @@ const OUTPUT_DIR =
     'outputs'
   );
 
+const SUBTITLE_DIR =
+  path.join(
+    ROOT_DIR,
+    'subtitles'
+  );
+
+const SUBTITLE_UPLOAD_LIMIT_BYTES =
+  1024 * 1024 * 1024;
+
+const SUBTITLE_PROCESS_TIMEOUT_MS =
+  20 * 60 * 1000;
+
 const jobs =
   new Map();
+
+const subtitleJobs =
+  new Map();
+
+const subtitleUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: SUBTITLE_UPLOAD_LIMIT_BYTES,
+    files: 1,
+    fields: 20
+  }
+});
 
 
 // ============================================================
@@ -221,6 +246,13 @@ async function ensureDirectories() {
 
   await fsp.mkdir(
     OUTPUT_DIR,
+    {
+      recursive: true
+    }
+  );
+
+  await fsp.mkdir(
+    SUBTITLE_DIR,
     {
       recursive: true
     }
@@ -841,6 +873,135 @@ function runProcess(
       );
     }
   );
+}
+
+// ============================================================
+// STANDALONE PROCESS (SUBTITLE BURN)
+// ============================================================
+
+function runStandaloneProcess(
+  command,
+  args,
+  options = {}
+) {
+  return new Promise((resolve, reject) => {
+    const {
+      timeoutMs = SUBTITLE_PROCESS_TIMEOUT_MS,
+      label = command,
+      ...spawnOptions
+    } = options ?? {};
+
+    const startedAt = Date.now();
+    let settled = false;
+    let timeoutHandle = null;
+    let stdout = '';
+    let stderr = '';
+
+    console.log(
+      `[subtitle] PROCESS START label=${label} command=${command} timeout_s=${Math.round(timeoutMs / 1000)}`
+    );
+
+    const child = spawn(command, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      ...spawnOptions
+    });
+
+    const cleanup = () => {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
+      }
+    };
+
+    const finishReject = error => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      console.error(
+        `[subtitle] PROCESS FAIL label=${label} elapsed_s=${((Date.now() - startedAt) / 1000).toFixed(3)} error=${cleanText(error?.message)}`
+      );
+      reject(error);
+    };
+
+    const finishResolve = result => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      console.log(
+        `[subtitle] PROCESS DONE label=${label} elapsed_s=${((Date.now() - startedAt) / 1000).toFixed(3)}`
+      );
+      resolve(result);
+    };
+
+    if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+      timeoutHandle = setTimeout(() => {
+        try {
+          if (!child.killed) child.kill('SIGKILL');
+        } catch (_) {}
+
+        const error = new Error(
+          `${label} process timeout after ${Math.round(timeoutMs / 1000)} seconds`
+        );
+        error.isProcessTimeout = true;
+        finishReject(error);
+      }, timeoutMs);
+    }
+
+    child.stdout.on('data', chunk => {
+      stdout += chunk.toString();
+      if (stdout.length > 20000) stdout = stdout.slice(-20000);
+    });
+
+    child.stderr.on('data', chunk => {
+      stderr += chunk.toString();
+      if (stderr.length > 30000) stderr = stderr.slice(-30000);
+    });
+
+    child.on('error', finishReject);
+
+    child.on('close', code => {
+      if (settled) return;
+      if (code === 0) {
+        finishResolve({ stdout, stderr });
+        return;
+      }
+      finishReject(
+        new Error(`${command} exited with code ${code}\n${stderr}`)
+      );
+    });
+  });
+}
+
+async function getStandaloneMediaDuration(filePath) {
+  const result = await runStandaloneProcess(
+    'ffprobe',
+    [
+      '-v', 'error',
+      '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1',
+      filePath
+    ],
+    {
+      timeoutMs: 120000,
+      label: 'subtitle_ffprobe'
+    }
+  );
+
+  const duration = Number(cleanText(result.stdout));
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new Error(`Unable to determine media duration: ${filePath}`);
+  }
+  return duration;
+}
+
+function escapeSubtitleFilterPath(filePath) {
+  return String(filePath)
+    .replace(/\\/g, '/')
+    .replace(/:/g, '\\:')
+    .replace(/'/g, "\\'")
+    .replace(/,/g, '\\,')
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]');
 }
 
 // ============================================================
@@ -5060,6 +5221,18 @@ app.get(
             true
         },
 
+        subtitle_burn_support:
+          true,
+
+        subtitle_format:
+          'ASS via FFmpeg/libass',
+
+        subtitle_upload_limit_bytes:
+          SUBTITLE_UPLOAD_LIMIT_BYTES,
+
+        subtitle_process_timeout_minutes:
+          Math.round(SUBTITLE_PROCESS_TIMEOUT_MS / 60000),
+
         time:
           nowIso()
       });
@@ -5428,6 +5601,212 @@ app.get(
 
 
 // ============================================================
+// BURN ASS SUBTITLES
+// ============================================================
+
+app.post(
+  '/burn-subtitles',
+  subtitleUpload.single('video'),
+  async (req, res) => {
+    const subtitleJobId = createJobId();
+    const workDir = path.join(SUBTITLE_DIR, subtitleJobId);
+    const inputPath = path.join(workDir, 'input.mp4');
+    const assPath = path.join(workDir, 'subtitles.ass');
+    const outputPath = path.join(SUBTITLE_DIR, `${subtitleJobId}.mp4`);
+
+    try {
+      await ensureDirectories();
+
+      if (!req.file || !Buffer.isBuffer(req.file.buffer)) {
+        return res.status(400).json({
+          error: 'Missing video file. Send multipart/form-data field named video.'
+        });
+      }
+
+      const assContent = cleanText(
+        req.body?.ass_content ??
+        req.body?.ass ??
+        req.body?.subtitle
+      );
+
+      if (!assContent) {
+        return res.status(400).json({
+          error: 'Missing ASS subtitle text. Send field named ass_content.'
+        });
+      }
+
+      if (!assContent.includes('[Script Info]') || !assContent.includes('[Events]')) {
+        return res.status(400).json({
+          error: 'ass_content does not look like a valid ASS subtitle document.'
+        });
+      }
+
+      await fsp.mkdir(workDir, { recursive: true });
+      await fsp.writeFile(inputPath, req.file.buffer);
+      await fsp.writeFile(assPath, `\uFEFF${assContent}`, 'utf8');
+
+      const inputStat = await fsp.stat(inputPath);
+      if (inputStat.size < 10000) {
+        throw new Error(`Uploaded video is unexpectedly small: ${inputStat.size} bytes`);
+      }
+
+      const inputDuration = await getStandaloneMediaDuration(inputPath);
+      const escapedAssPath = escapeSubtitleFilterPath(assPath);
+
+      subtitleJobs.set(subtitleJobId, {
+        job_id: subtitleJobId,
+        status: 'processing',
+        created_at: nowIso(),
+        output_path: outputPath,
+        input_duration: Number(inputDuration.toFixed(3)),
+        output_duration: null,
+        output_size_bytes: null,
+        error: null
+      });
+
+      await runStandaloneProcess(
+        'ffmpeg',
+        [
+          '-y',
+          '-i', inputPath,
+          '-vf', `ass='${escapedAssPath}'`,
+          '-map', '0:v:0',
+          '-map', '0:a?',
+          '-c:v', 'libx264',
+          '-preset', 'veryfast',
+          '-crf', '20',
+          '-pix_fmt', 'yuv420p',
+          '-c:a', 'copy',
+          '-movflags', '+faststart',
+          outputPath
+        ],
+        {
+          timeoutMs: SUBTITLE_PROCESS_TIMEOUT_MS,
+          label: `burn_subtitles_${subtitleJobId}`
+        }
+      );
+
+      const outputStat = await fsp.stat(outputPath);
+      if (outputStat.size < 10000) {
+        throw new Error(`Subtitled output is unexpectedly small: ${outputStat.size} bytes`);
+      }
+
+      const outputDuration = await getStandaloneMediaDuration(outputPath);
+      const durationDifference = Math.abs(outputDuration - inputDuration);
+
+      if (durationDifference > 2.0) {
+        throw new Error(
+          `Subtitle burn duration mismatch. input=${inputDuration.toFixed(3)} output=${outputDuration.toFixed(3)} difference=${durationDifference.toFixed(3)}`
+        );
+      }
+
+      subtitleJobs.set(subtitleJobId, {
+        job_id: subtitleJobId,
+        status: 'completed',
+        created_at: subtitleJobs.get(subtitleJobId)?.created_at ?? nowIso(),
+        completed_at: nowIso(),
+        output_path: outputPath,
+        input_duration: Number(inputDuration.toFixed(3)),
+        output_duration: Number(outputDuration.toFixed(3)),
+        duration_difference: Number(durationDifference.toFixed(3)),
+        output_size_bytes: outputStat.size,
+        error: null
+      });
+
+      try {
+        await fsp.rm(workDir, { recursive: true, force: true });
+      } catch (_) {}
+
+      return res.status(200).json({
+        ok: true,
+        job_id: subtitleJobId,
+        status: 'completed',
+        input_duration: Number(inputDuration.toFixed(3)),
+        output_duration: Number(outputDuration.toFixed(3)),
+        duration_difference: Number(durationDifference.toFixed(3)),
+        output_size_bytes: outputStat.size,
+        download_url: `/download-subtitled/${subtitleJobId}`,
+        version: SERVER_VERSION
+      });
+
+    } catch (error) {
+      console.error(`[${subtitleJobId}] Subtitle burn failed`, error);
+
+      subtitleJobs.set(subtitleJobId, {
+        job_id: subtitleJobId,
+        status: 'failed',
+        completed_at: nowIso(),
+        output_path: null,
+        error: cleanText(error.message) || 'Unknown subtitle burn error'
+      });
+
+      try {
+        await fsp.rm(workDir, { recursive: true, force: true });
+      } catch (_) {}
+
+      try {
+        await fsp.rm(outputPath, { force: true });
+      } catch (_) {}
+
+      return res.status(500).json({
+        ok: false,
+        job_id: subtitleJobId,
+        status: 'failed',
+        error: cleanText(error.message) || 'Subtitle burn failed',
+        version: SERVER_VERSION
+      });
+    }
+  }
+);
+
+
+// ============================================================
+// DOWNLOAD SUBTITLED VIDEO
+// ============================================================
+
+app.get(
+  '/download-subtitled/:jobId',
+  async (req, res) => {
+    const job = subtitleJobs.get(req.params.jobId);
+
+    if (!job) {
+      return res.status(404).json({
+        error: 'Subtitle job not found'
+      });
+    }
+
+    if (job.status !== 'completed') {
+      return res.status(409).json({
+        error: 'Subtitle burn is not completed',
+        status: job.status,
+        detail: job.error ?? null
+      });
+    }
+
+    const outputPath = job.output_path;
+    if (!outputPath) {
+      return res.status(404).json({
+        error: 'Subtitled output path missing'
+      });
+    }
+
+    try {
+      await fsp.access(outputPath);
+    } catch (_) {
+      return res.status(404).json({
+        error: 'Subtitled output file not found'
+      });
+    }
+
+    return res.download(
+      outputPath,
+      `midnight-files-subtitled-${job.job_id}.mp4`
+    );
+  }
+);
+
+
+// ============================================================
 // ROOT
 // ============================================================
 
@@ -5458,7 +5837,13 @@ app.get(
           'GET /status/:jobId',
 
         download:
-          'GET /download/:jobId'
+          'GET /download/:jobId',
+
+        burn_subtitles:
+          'POST /burn-subtitles',
+
+        download_subtitled:
+          'GET /download-subtitled/:jobId'
       }
     });
   }
@@ -5536,6 +5921,14 @@ ensureDirectories()
 
           console.log(
             'Duration QA: enabled'
+          );
+
+          console.log(
+            'Subtitle burn: ASS/libass enabled'
+          );
+
+          console.log(
+            `Subtitle timeout: ${Math.round(SUBTITLE_PROCESS_TIMEOUT_MS / 60000)} minutes`
           );
 
           console.log(
