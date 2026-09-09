@@ -25,7 +25,7 @@ const PORT =
   Number(process.env.PORT || 3000);
 
 const SERVER_VERSION =
-  'midnight-files-render-v2.3.0-subtitles';
+  'midnight-files-render-v2.4.0-async-subtitles';
 
 const HARD_TIMEOUT_MINUTES =
   60;
@@ -92,11 +92,26 @@ const SUBTITLE_DIR =
     'subtitles'
   );
 
+const SUBTITLE_UPLOAD_DIR =
+  path.join(
+    SUBTITLE_DIR,
+    'uploads'
+  );
+
 const SUBTITLE_UPLOAD_LIMIT_BYTES =
   1024 * 1024 * 1024;
 
 const SUBTITLE_PROCESS_TIMEOUT_MS =
   20 * 60 * 1000;
+
+const SUBTITLE_FFMPEG_THREADS =
+  1;
+
+const SUBTITLE_FFMPEG_PRESET =
+  'ultrafast';
+
+const SUBTITLE_FFMPEG_CRF =
+  24;
 
 const jobs =
   new Map();
@@ -104,12 +119,49 @@ const jobs =
 const subtitleJobs =
   new Map();
 
+const subtitleUploadStorage =
+  multer.diskStorage({
+    destination: (
+      req,
+      file,
+      callback
+    ) => {
+      callback(
+        null,
+        SUBTITLE_UPLOAD_DIR
+      );
+    },
+
+    filename: (
+      req,
+      file,
+      callback
+    ) => {
+      const extension =
+        path.extname(
+          cleanText(file.originalname)
+        ) || '.mp4';
+
+      callback(
+        null,
+        `${crypto.randomUUID()}${extension}`
+      );
+    }
+  });
+
 const subtitleUpload = multer({
-  storage: multer.memoryStorage(),
+  storage:
+    subtitleUploadStorage,
+
   limits: {
-    fileSize: SUBTITLE_UPLOAD_LIMIT_BYTES,
-    files: 1,
-    fields: 20
+    fileSize:
+      SUBTITLE_UPLOAD_LIMIT_BYTES,
+
+    files:
+      1,
+
+    fields:
+      20
   }
 });
 
@@ -253,6 +305,13 @@ async function ensureDirectories() {
 
   await fsp.mkdir(
     SUBTITLE_DIR,
+    {
+      recursive: true
+    }
+  );
+
+  await fsp.mkdir(
+    SUBTITLE_UPLOAD_DIR,
     {
       recursive: true
     }
@@ -1002,6 +1061,321 @@ function escapeSubtitleFilterPath(filePath) {
     .replace(/,/g, '\\,')
     .replace(/\[/g, '\\[')
     .replace(/\]/g, '\\]');
+}
+
+
+function publicSubtitleJob(job) {
+  if (!job) {
+    return null;
+  }
+
+  return {
+    job_id:
+      job.job_id,
+
+    status:
+      job.status,
+
+    progress:
+      job.progress ?? null,
+
+    current_step:
+      job.current_step ?? null,
+
+    created_at:
+      job.created_at ?? null,
+
+    started_at:
+      job.started_at ?? null,
+
+    completed_at:
+      job.completed_at ?? null,
+
+    input_duration:
+      job.input_duration ?? null,
+
+    output_duration:
+      job.output_duration ?? null,
+
+    duration_difference:
+      job.duration_difference ?? null,
+
+    input_size_bytes:
+      job.input_size_bytes ?? null,
+
+    output_size_bytes:
+      job.output_size_bytes ?? null,
+
+    error:
+      job.error ?? null,
+
+    download_url:
+      job.status === 'completed'
+        ? `/download-subtitled/${job.job_id}`
+        : null
+  };
+}
+
+
+function updateSubtitleJob(
+  jobId,
+  patch
+) {
+  const job =
+    subtitleJobs.get(jobId);
+
+  if (!job) {
+    return;
+  }
+
+  Object.assign(
+    job,
+    patch
+  );
+}
+
+
+async function processSubtitleBurnJob(jobId) {
+  const job =
+    subtitleJobs.get(jobId);
+
+  if (!job) {
+    return;
+  }
+
+  const workDir =
+    job.work_dir;
+
+  const inputPath =
+    job.input_path;
+
+  const assPath =
+    job.ass_path;
+
+  const outputPath =
+    job.output_path;
+
+  try {
+    updateSubtitleJob(
+      jobId,
+      {
+        status:
+          'processing',
+
+        progress:
+          5,
+
+        current_step:
+          'probing_input',
+
+        started_at:
+          nowIso(),
+
+        error:
+          null
+      }
+    );
+
+    const inputStat =
+      await fsp.stat(
+        inputPath
+      );
+
+    if (
+      inputStat.size <
+      10000
+    ) {
+      throw new Error(
+        `Uploaded video is unexpectedly small: ${inputStat.size} bytes`
+      );
+    }
+
+    const inputDuration =
+      await getStandaloneMediaDuration(
+        inputPath
+      );
+
+    updateSubtitleJob(
+      jobId,
+      {
+        progress:
+          10,
+
+        current_step:
+          'burning_subtitles',
+
+        input_size_bytes:
+          inputStat.size,
+
+        input_duration:
+          Number(
+            inputDuration.toFixed(3)
+          )
+      }
+    );
+
+    const escapedAssPath =
+      escapeSubtitleFilterPath(
+        assPath
+      );
+
+    await runStandaloneProcess(
+      'ffmpeg',
+      [
+        '-y',
+        '-i', inputPath,
+        '-vf', `ass='${escapedAssPath}'`,
+        '-map', '0:v:0',
+        '-map', '0:a?',
+        '-c:v', 'libx264',
+        '-preset', SUBTITLE_FFMPEG_PRESET,
+        '-crf', String(SUBTITLE_FFMPEG_CRF),
+        '-threads', String(SUBTITLE_FFMPEG_THREADS),
+        '-pix_fmt', 'yuv420p',
+        '-c:a', 'copy',
+        '-movflags', '+faststart',
+        outputPath
+      ],
+      {
+        timeoutMs:
+          SUBTITLE_PROCESS_TIMEOUT_MS,
+
+        label:
+          `burn_subtitles_${jobId}`
+      }
+    );
+
+    updateSubtitleJob(
+      jobId,
+      {
+        progress:
+          92,
+
+        current_step:
+          'validating_output'
+      }
+    );
+
+    const outputStat =
+      await fsp.stat(
+        outputPath
+      );
+
+    if (
+      outputStat.size <
+      10000
+    ) {
+      throw new Error(
+        `Subtitled output is unexpectedly small: ${outputStat.size} bytes`
+      );
+    }
+
+    const outputDuration =
+      await getStandaloneMediaDuration(
+        outputPath
+      );
+
+    const durationDifference =
+      Math.abs(
+        outputDuration -
+        inputDuration
+      );
+
+    if (
+      durationDifference >
+      2.0
+    ) {
+      throw new Error(
+        `Subtitle burn duration mismatch. input=${inputDuration.toFixed(3)} output=${outputDuration.toFixed(3)} difference=${durationDifference.toFixed(3)}`
+      );
+    }
+
+    updateSubtitleJob(
+      jobId,
+      {
+        status:
+          'completed',
+
+        progress:
+          100,
+
+        current_step:
+          'completed',
+
+        completed_at:
+          nowIso(),
+
+        output_duration:
+          Number(
+            outputDuration.toFixed(3)
+          ),
+
+        duration_difference:
+          Number(
+            durationDifference.toFixed(3)
+          ),
+
+        output_size_bytes:
+          outputStat.size,
+
+        error:
+          null
+      }
+    );
+
+    try {
+      await fsp.rm(
+        workDir,
+        {
+          recursive: true,
+          force: true
+        }
+      );
+    } catch (_) {}
+
+  } catch (error) {
+    console.error(
+      `[${jobId}] Subtitle burn failed`,
+      error
+    );
+
+    updateSubtitleJob(
+      jobId,
+      {
+        status:
+          'failed',
+
+        current_step:
+          'failed',
+
+        completed_at:
+          nowIso(),
+
+        error:
+          cleanText(error.message) ||
+          'Unknown subtitle burn error'
+      }
+    );
+
+    try {
+      await fsp.rm(
+        workDir,
+        {
+          recursive: true,
+          force: true
+        }
+      );
+    } catch (_) {}
+
+    try {
+      await fsp.rm(
+        outputPath,
+        {
+          force: true
+        }
+      );
+    } catch (_) {}
+  }
 }
 
 // ============================================================
@@ -5224,8 +5598,23 @@ app.get(
         subtitle_burn_support:
           true,
 
+        subtitle_async_jobs:
+          true,
+
         subtitle_format:
           'ASS via FFmpeg/libass',
+
+        subtitle_upload_storage:
+          'disk',
+
+        subtitle_ffmpeg_preset:
+          SUBTITLE_FFMPEG_PRESET,
+
+        subtitle_ffmpeg_crf:
+          SUBTITLE_FFMPEG_CRF,
+
+        subtitle_ffmpeg_threads:
+          SUBTITLE_FFMPEG_THREADS,
 
         subtitle_upload_limit_bytes:
           SUBTITLE_UPLOAD_LIMIT_BYTES,
@@ -5601,161 +5990,313 @@ app.get(
 
 
 // ============================================================
-// BURN ASS SUBTITLES
+// BURN ASS SUBTITLES - ASYNC JOB
 // ============================================================
 
 app.post(
   '/burn-subtitles',
   subtitleUpload.single('video'),
   async (req, res) => {
-    const subtitleJobId = createJobId();
-    const workDir = path.join(SUBTITLE_DIR, subtitleJobId);
-    const inputPath = path.join(workDir, 'input.mp4');
-    const assPath = path.join(workDir, 'subtitles.ass');
-    const outputPath = path.join(SUBTITLE_DIR, `${subtitleJobId}.mp4`);
+    let uploadedPath =
+      cleanText(
+        req.file?.path
+      );
 
     try {
       await ensureDirectories();
 
-      if (!req.file || !Buffer.isBuffer(req.file.buffer)) {
-        return res.status(400).json({
-          error: 'Missing video file. Send multipart/form-data field named video.'
-        });
+      if (
+        !req.file ||
+        !uploadedPath
+      ) {
+        return res
+          .status(400)
+          .json({
+            error:
+              'Missing video file. Send multipart/form-data field named video.'
+          });
       }
 
-      const assContent = cleanText(
-        req.body?.ass_content ??
-        req.body?.ass ??
-        req.body?.subtitle
-      );
+      const assContent =
+        cleanText(
+          req.body?.ass_content ??
+          req.body?.ass ??
+          req.body?.subtitle
+        );
 
       if (!assContent) {
-        return res.status(400).json({
-          error: 'Missing ASS subtitle text. Send field named ass_content.'
-        });
+        try {
+          await fsp.rm(
+            uploadedPath,
+            {
+              force: true
+            }
+          );
+        } catch (_) {}
+
+        return res
+          .status(400)
+          .json({
+            error:
+              'Missing ASS subtitle text. Send field named ass_content.'
+          });
       }
 
-      if (!assContent.includes('[Script Info]') || !assContent.includes('[Events]')) {
-        return res.status(400).json({
-          error: 'ass_content does not look like a valid ASS subtitle document.'
-        });
+      if (
+        !assContent.includes('[Script Info]') ||
+        !assContent.includes('[Events]')
+      ) {
+        try {
+          await fsp.rm(
+            uploadedPath,
+            {
+              force: true
+            }
+          );
+        } catch (_) {}
+
+        return res
+          .status(400)
+          .json({
+            error:
+              'ass_content does not look like a valid ASS subtitle document.'
+          });
       }
 
-      await fsp.mkdir(workDir, { recursive: true });
-      await fsp.writeFile(inputPath, req.file.buffer);
-      await fsp.writeFile(assPath, `\uFEFF${assContent}`, 'utf8');
+      const subtitleJobId =
+        createJobId();
 
-      const inputStat = await fsp.stat(inputPath);
-      if (inputStat.size < 10000) {
-        throw new Error(`Uploaded video is unexpectedly small: ${inputStat.size} bytes`);
-      }
+      const workDir =
+        path.join(
+          SUBTITLE_DIR,
+          subtitleJobId
+        );
 
-      const inputDuration = await getStandaloneMediaDuration(inputPath);
-      const escapedAssPath = escapeSubtitleFilterPath(assPath);
+      const inputPath =
+        path.join(
+          workDir,
+          'input.mp4'
+        );
 
-      subtitleJobs.set(subtitleJobId, {
-        job_id: subtitleJobId,
-        status: 'processing',
-        created_at: nowIso(),
-        output_path: outputPath,
-        input_duration: Number(inputDuration.toFixed(3)),
-        output_duration: null,
-        output_size_bytes: null,
-        error: null
-      });
+      const assPath =
+        path.join(
+          workDir,
+          'subtitles.ass'
+        );
 
-      await runStandaloneProcess(
-        'ffmpeg',
-        [
-          '-y',
-          '-i', inputPath,
-          '-vf', `ass='${escapedAssPath}'`,
-          '-map', '0:v:0',
-          '-map', '0:a?',
-          '-c:v', 'libx264',
-          '-preset', 'veryfast',
-          '-crf', '20',
-          '-pix_fmt', 'yuv420p',
-          '-c:a', 'copy',
-          '-movflags', '+faststart',
-          outputPath
-        ],
+      const outputPath =
+        path.join(
+          SUBTITLE_DIR,
+          `${subtitleJobId}.mp4`
+        );
+
+      await fsp.mkdir(
+        workDir,
         {
-          timeoutMs: SUBTITLE_PROCESS_TIMEOUT_MS,
-          label: `burn_subtitles_${subtitleJobId}`
+          recursive: true
         }
       );
 
-      const outputStat = await fsp.stat(outputPath);
-      if (outputStat.size < 10000) {
-        throw new Error(`Subtitled output is unexpectedly small: ${outputStat.size} bytes`);
-      }
+      try {
+        await fsp.rename(
+          uploadedPath,
+          inputPath
+        );
+      } catch (_) {
+        await fsp.copyFile(
+          uploadedPath,
+          inputPath
+        );
 
-      const outputDuration = await getStandaloneMediaDuration(outputPath);
-      const durationDifference = Math.abs(outputDuration - inputDuration);
-
-      if (durationDifference > 2.0) {
-        throw new Error(
-          `Subtitle burn duration mismatch. input=${inputDuration.toFixed(3)} output=${outputDuration.toFixed(3)} difference=${durationDifference.toFixed(3)}`
+        await fsp.rm(
+          uploadedPath,
+          {
+            force: true
+          }
         );
       }
 
-      subtitleJobs.set(subtitleJobId, {
-        job_id: subtitleJobId,
-        status: 'completed',
-        created_at: subtitleJobs.get(subtitleJobId)?.created_at ?? nowIso(),
-        completed_at: nowIso(),
-        output_path: outputPath,
-        input_duration: Number(inputDuration.toFixed(3)),
-        output_duration: Number(outputDuration.toFixed(3)),
-        duration_difference: Number(durationDifference.toFixed(3)),
-        output_size_bytes: outputStat.size,
-        error: null
-      });
+      uploadedPath = '';
 
-      try {
-        await fsp.rm(workDir, { recursive: true, force: true });
-      } catch (_) {}
+      await fsp.writeFile(
+        assPath,
+        `\uFEFF${assContent}`,
+        'utf8'
+      );
 
-      return res.status(200).json({
-        ok: true,
-        job_id: subtitleJobId,
-        status: 'completed',
-        input_duration: Number(inputDuration.toFixed(3)),
-        output_duration: Number(outputDuration.toFixed(3)),
-        duration_difference: Number(durationDifference.toFixed(3)),
-        output_size_bytes: outputStat.size,
-        download_url: `/download-subtitled/${subtitleJobId}`,
-        version: SERVER_VERSION
-      });
+      const inputStat =
+        await fsp.stat(
+          inputPath
+        );
+
+      if (
+        inputStat.size <
+        10000
+      ) {
+        throw new Error(
+          `Uploaded video is unexpectedly small: ${inputStat.size} bytes`
+        );
+      }
+
+      subtitleJobs.set(
+        subtitleJobId,
+        {
+          job_id:
+            subtitleJobId,
+
+          status:
+            'queued',
+
+          progress:
+            0,
+
+          current_step:
+            'queued',
+
+          created_at:
+            nowIso(),
+
+          started_at:
+            null,
+
+          completed_at:
+            null,
+
+          work_dir:
+            workDir,
+
+          input_path:
+            inputPath,
+
+          ass_path:
+            assPath,
+
+          output_path:
+            outputPath,
+
+          input_size_bytes:
+            inputStat.size,
+
+          input_duration:
+            null,
+
+          output_duration:
+            null,
+
+          duration_difference:
+            null,
+
+          output_size_bytes:
+            null,
+
+          error:
+            null
+        }
+      );
+
+      setImmediate(
+        () => {
+          processSubtitleBurnJob(
+            subtitleJobId
+          )
+            .catch(
+              error => {
+                console.error(
+                  `[${subtitleJobId}] Unhandled subtitle job error`,
+                  error
+                );
+              }
+            );
+        }
+      );
+
+      return res
+        .status(202)
+        .json({
+          ok:
+            true,
+
+          job_id:
+            subtitleJobId,
+
+          status:
+            'queued',
+
+          status_url:
+            `/subtitle-status/${subtitleJobId}`,
+
+          download_url:
+            `/download-subtitled/${subtitleJobId}`,
+
+          version:
+            SERVER_VERSION
+        });
 
     } catch (error) {
-      console.error(`[${subtitleJobId}] Subtitle burn failed`, error);
+      console.error(
+        'POST /burn-subtitles error',
+        error
+      );
 
-      subtitleJobs.set(subtitleJobId, {
-        job_id: subtitleJobId,
-        status: 'failed',
-        completed_at: nowIso(),
-        output_path: null,
-        error: cleanText(error.message) || 'Unknown subtitle burn error'
-      });
+      if (uploadedPath) {
+        try {
+          await fsp.rm(
+            uploadedPath,
+            {
+              force: true
+            }
+          );
+        } catch (_) {}
+      }
 
-      try {
-        await fsp.rm(workDir, { recursive: true, force: true });
-      } catch (_) {}
+      return res
+        .status(500)
+        .json({
+          ok:
+            false,
 
-      try {
-        await fsp.rm(outputPath, { force: true });
-      } catch (_) {}
+          status:
+            'failed',
 
-      return res.status(500).json({
-        ok: false,
-        job_id: subtitleJobId,
-        status: 'failed',
-        error: cleanText(error.message) || 'Subtitle burn failed',
-        version: SERVER_VERSION
-      });
+          error:
+            cleanText(error.message) ||
+            'Unable to queue subtitle burn',
+
+          version:
+            SERVER_VERSION
+        });
     }
+  }
+);
+
+
+// ============================================================
+// SUBTITLE STATUS
+// ============================================================
+
+app.get(
+  '/subtitle-status/:jobId',
+  (
+    req,
+    res
+  ) => {
+    const job =
+      subtitleJobs.get(
+        req.params.jobId
+      );
+
+    if (!job) {
+      return res
+        .status(404)
+        .json({
+          error:
+            'Subtitle job not found'
+        });
+    }
+
+    return res.json(
+      publicSubtitleJob(job)
+    );
   }
 );
 
@@ -5766,36 +6307,65 @@ app.post(
 
 app.get(
   '/download-subtitled/:jobId',
-  async (req, res) => {
-    const job = subtitleJobs.get(req.params.jobId);
+  async (
+    req,
+    res
+  ) => {
+    const job =
+      subtitleJobs.get(
+        req.params.jobId
+      );
 
     if (!job) {
-      return res.status(404).json({
-        error: 'Subtitle job not found'
-      });
+      return res
+        .status(404)
+        .json({
+          error:
+            'Subtitle job not found'
+        });
     }
 
-    if (job.status !== 'completed') {
-      return res.status(409).json({
-        error: 'Subtitle burn is not completed',
-        status: job.status,
-        detail: job.error ?? null
-      });
+    if (
+      job.status !==
+      'completed'
+    ) {
+      return res
+        .status(409)
+        .json({
+          error:
+            'Subtitle burn is not completed',
+
+          status:
+            job.status,
+
+          detail:
+            job.error ?? null
+        });
     }
 
-    const outputPath = job.output_path;
+    const outputPath =
+      job.output_path;
+
     if (!outputPath) {
-      return res.status(404).json({
-        error: 'Subtitled output path missing'
-      });
+      return res
+        .status(404)
+        .json({
+          error:
+            'Subtitled output path missing'
+        });
     }
 
     try {
-      await fsp.access(outputPath);
+      await fsp.access(
+        outputPath
+      );
     } catch (_) {
-      return res.status(404).json({
-        error: 'Subtitled output file not found'
-      });
+      return res
+        .status(404)
+        .json({
+          error:
+            'Subtitled output file not found'
+        });
     }
 
     return res.download(
@@ -5841,6 +6411,9 @@ app.get(
 
         burn_subtitles:
           'POST /burn-subtitles',
+
+        subtitle_status:
+          'GET /subtitle-status/:jobId',
 
         download_subtitled:
           'GET /download-subtitled/:jobId'
@@ -5924,11 +6497,11 @@ ensureDirectories()
           );
 
           console.log(
-            'Subtitle burn: ASS/libass enabled'
+            'Subtitle burn: ASS/libass async job enabled'
           );
 
           console.log(
-            `Subtitle timeout: ${Math.round(SUBTITLE_PROCESS_TIMEOUT_MS / 60000)} minutes`
+            `Subtitle timeout: ${Math.round(SUBTITLE_PROCESS_TIMEOUT_MS / 60000)} minutes / preset=${SUBTITLE_FFMPEG_PRESET} / crf=${SUBTITLE_FFMPEG_CRF} / threads=${SUBTITLE_FFMPEG_THREADS}`
           );
 
           console.log(
