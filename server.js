@@ -25,7 +25,7 @@ const PORT =
   Number(process.env.PORT || 3000);
 
 const SERVER_VERSION =
-  'midnight-files-render-v2.4.0-async-subtitles';
+  'midnight-files-render-v2.5.0-audio-probe';
 
 const HARD_TIMEOUT_MINUTES =
   60;
@@ -51,7 +51,16 @@ const MAX_SCENES =
   40;
 
 const VISUAL_RENDER_CONCURRENCY =
-  Math.max(1, Math.min(4, Number(process.env.VISUAL_RENDER_CONCURRENCY || 2)));
+  Math.max(
+    1,
+    Math.min(
+      4,
+      Number(
+        process.env.VISUAL_RENDER_CONCURRENCY ||
+        2
+      )
+    )
+  );
 
 const MIN_AUDIO_PARTS =
   3;
@@ -90,6 +99,30 @@ const SUBTITLE_DIR =
   path.join(
     ROOT_DIR,
     'subtitles'
+  );
+
+const PROBE_DIR =
+  path.join(
+    ROOT_DIR,
+    'audio-probes'
+  );
+
+const TARGET_MIN_SECONDS =
+  Number(
+    process.env.TARGET_MIN_SECONDS ||
+    720
+  );
+
+const TARGET_IDEAL_MAX_SECONDS =
+  Number(
+    process.env.TARGET_IDEAL_MAX_SECONDS ||
+    900
+  );
+
+const TARGET_HARD_MAX_SECONDS =
+  Number(
+    process.env.TARGET_HARD_MAX_SECONDS ||
+    1200
   );
 
 const SUBTITLE_UPLOAD_DIR =
@@ -139,8 +172,11 @@ const subtitleUploadStorage =
     ) => {
       const extension =
         path.extname(
-          cleanText(file.originalname)
-        ) || '.mp4';
+          cleanText(
+            file.originalname
+          )
+        ) ||
+        '.mp4';
 
       callback(
         null,
@@ -149,21 +185,22 @@ const subtitleUploadStorage =
     }
   });
 
-const subtitleUpload = multer({
-  storage:
-    subtitleUploadStorage,
+const subtitleUpload =
+  multer({
+    storage:
+      subtitleUploadStorage,
 
-  limits: {
-    fileSize:
-      SUBTITLE_UPLOAD_LIMIT_BYTES,
+    limits: {
+      fileSize:
+        SUBTITLE_UPLOAD_LIMIT_BYTES,
 
-    files:
-      1,
+      files:
+        1,
 
-    fields:
-      20
-  }
-});
+      fields:
+        20
+    }
+  });
 
 
 // ============================================================
@@ -180,7 +217,10 @@ function cleanText(value) {
   }
 
   return String(value)
-    .replace(/^\uFEFF/, '')
+    .replace(
+      /^\uFEFF/,
+      ''
+    )
     .trim();
 }
 
@@ -275,11 +315,26 @@ function roundDuration(value) {
 function escapeDrawtext(value) {
 
   return cleanText(value)
-    .replace(/\\/g, '\\\\')
-    .replace(/:/g, '\\:')
-    .replace(/'/g, "\\'")
-    .replace(/%/g, '\\%')
-    .replace(/\n/g, ' ');
+    .replace(
+      /\\/g,
+      '\\\\'
+    )
+    .replace(
+      /:/g,
+      '\\:'
+    )
+    .replace(
+      /'/g,
+      "\\'"
+    )
+    .replace(
+      /%/g,
+      '\\%'
+    )
+    .replace(
+      /\n/g,
+      ' '
+    );
 }
 
 
@@ -305,6 +360,13 @@ async function ensureDirectories() {
 
   await fsp.mkdir(
     SUBTITLE_DIR,
+    {
+      recursive: true
+    }
+  );
+
+  await fsp.mkdir(
+    PROBE_DIR,
     {
       recursive: true
     }
@@ -439,7 +501,8 @@ function publicJob(job) {
       HARD_TIMEOUT_MINUTES,
 
     download_url:
-      job.status === 'completed'
+      job.status ===
+      'completed'
         ? `/download/${job.job_id}`
         : null
   };
@@ -461,7 +524,8 @@ function updateJob(
   // Once timed out, no background process may revive the job.
   if (
     job.timeout === true &&
-    patch.status === 'completed'
+    patch.status ===
+      'completed'
   ) {
     return;
   }
@@ -534,7 +598,10 @@ function registerChild(
   }
 
   if (
-    !(job.active_children instanceof Set)
+    !(
+      job.active_children
+      instanceof Set
+    )
   ) {
     job.active_children =
       new Set();
@@ -555,7 +622,10 @@ function unregisterChild(
 
   if (
     !job ||
-    !(job.active_children instanceof Set)
+    !(
+      job.active_children
+      instanceof Set
+    )
   ) {
     return;
   }
@@ -565,14 +635,19 @@ function unregisterChild(
 }
 
 
-function killActiveChildren(jobId) {
+function killActiveChildren(
+  jobId
+) {
 
   const job =
     jobs.get(jobId);
 
   if (
     !job ||
-    !(job.active_children instanceof Set)
+    !(
+      job.active_children
+      instanceof Set
+    )
   ) {
     return;
   }
@@ -641,10 +716,15 @@ function runProcess(
           ?.signal;
 
       const {
-        timeoutMs = DEFAULT_PROCESS_TIMEOUT_MS,
-        label = command,
+        timeoutMs =
+          DEFAULT_PROCESS_TIMEOUT_MS,
+
+        label =
+          command,
+
         ...spawnOptions
-      } = options ?? {};
+      } =
+        options ?? {};
 
       const startedAt =
         Date.now();
@@ -669,6 +749,7 @@ function runProcess(
               'pipe',
               'pipe'
             ],
+
             ...spawnOptions
           }
         );
@@ -678,15 +759,25 @@ function runProcess(
         child
       );
 
-      let stdout = '';
-      let stderr = '';
+      let stdout =
+        '';
+
+      let stderr =
+        '';
 
       const cleanup =
         () => {
 
-          if (processTimeoutHandle) {
-            clearTimeout(processTimeoutHandle);
-            processTimeoutHandle = null;
+          if (
+            processTimeoutHandle
+          ) {
+
+            clearTimeout(
+              processTimeoutHandle
+            );
+
+            processTimeoutHandle =
+              null;
           }
 
           unregisterChild(
@@ -718,7 +809,11 @@ function runProcess(
             true;
 
           const elapsedSeconds =
-            (Date.now() - startedAt) / 1000;
+            (
+              Date.now() -
+              startedAt
+            ) /
+            1000;
 
           console.error(
             `[${jobId}] PROCESS FAIL label=${label} elapsed_s=${elapsedSeconds.toFixed(3)} error=${cleanText(error?.message)}`
@@ -741,7 +836,11 @@ function runProcess(
             true;
 
           const elapsedSeconds =
-            (Date.now() - startedAt) / 1000;
+            (
+              Date.now() -
+              startedAt
+            ) /
+            1000;
 
           console.log(
             `[${jobId}] PROCESS DONE label=${label} elapsed_s=${elapsedSeconds.toFixed(3)}`
@@ -794,7 +893,9 @@ function runProcess(
 
       if (signal) {
 
-        if (signal.aborted) {
+        if (
+          signal.aborted
+        ) {
 
           abortHandler();
 
@@ -812,7 +913,9 @@ function runProcess(
 
 
       if (
-        Number.isFinite(timeoutMs) &&
+        Number.isFinite(
+          timeoutMs
+        ) &&
         timeoutMs > 0
       ) {
 
@@ -821,9 +924,16 @@ function runProcess(
             () => {
 
               try {
-                if (!child.killed) {
-                  child.kill('SIGKILL');
+
+                if (
+                  !child.killed
+                ) {
+
+                  child.kill(
+                    'SIGKILL'
+                  );
                 }
+
               } catch (_) {}
 
               const error =
@@ -834,7 +944,10 @@ function runProcess(
               error.isProcessTimeout =
                 true;
 
-              finishReject(error);
+              finishReject(
+                error
+              );
+
             },
             timeoutMs
           );
@@ -933,9 +1046,8 @@ function runProcess(
     }
   );
 }
-
 // ============================================================
-// STANDALONE PROCESS (SUBTITLE BURN)
+// STANDALONE PROCESS (SUBTITLE BURN + AUDIO PROBE)
 // ============================================================
 
 function runStandaloneProcess(
@@ -943,133 +1055,634 @@ function runStandaloneProcess(
   args,
   options = {}
 ) {
-  return new Promise((resolve, reject) => {
-    const {
-      timeoutMs = SUBTITLE_PROCESS_TIMEOUT_MS,
-      label = command,
-      ...spawnOptions
-    } = options ?? {};
 
-    const startedAt = Date.now();
-    let settled = false;
-    let timeoutHandle = null;
-    let stdout = '';
-    let stderr = '';
+  return new Promise(
+    (
+      resolve,
+      reject
+    ) => {
 
-    console.log(
-      `[subtitle] PROCESS START label=${label} command=${command} timeout_s=${Math.round(timeoutMs / 1000)}`
-    );
+      const {
+        timeoutMs =
+          SUBTITLE_PROCESS_TIMEOUT_MS,
 
-    const child = spawn(command, args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      ...spawnOptions
-    });
+        label =
+          command,
 
-    const cleanup = () => {
-      if (timeoutHandle) {
-        clearTimeout(timeoutHandle);
-        timeoutHandle = null;
-      }
-    };
+        ...spawnOptions
+      } =
+        options ?? {};
 
-    const finishReject = error => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      console.error(
-        `[subtitle] PROCESS FAIL label=${label} elapsed_s=${((Date.now() - startedAt) / 1000).toFixed(3)} error=${cleanText(error?.message)}`
-      );
-      reject(error);
-    };
+      const startedAt =
+        Date.now();
 
-    const finishResolve = result => {
-      if (settled) return;
-      settled = true;
-      cleanup();
+      let settled =
+        false;
+
+      let timeoutHandle =
+        null;
+
+      let stdout =
+        '';
+
+      let stderr =
+        '';
+
       console.log(
-        `[subtitle] PROCESS DONE label=${label} elapsed_s=${((Date.now() - startedAt) / 1000).toFixed(3)}`
+        `[standalone] PROCESS START label=${label} command=${command} timeout_s=${Math.round(timeoutMs / 1000)}`
       );
-      resolve(result);
-    };
 
-    if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
-      timeoutHandle = setTimeout(() => {
-        try {
-          if (!child.killed) child.kill('SIGKILL');
-        } catch (_) {}
+      const child =
+        spawn(
+          command,
+          args,
+          {
+            stdio: [
+              'ignore',
+              'pipe',
+              'pipe'
+            ],
 
-        const error = new Error(
-          `${label} process timeout after ${Math.round(timeoutMs / 1000)} seconds`
+            ...spawnOptions
+          }
         );
-        error.isProcessTimeout = true;
-        finishReject(error);
-      }, timeoutMs);
-    }
 
-    child.stdout.on('data', chunk => {
-      stdout += chunk.toString();
-      if (stdout.length > 20000) stdout = stdout.slice(-20000);
-    });
+      const cleanup =
+        () => {
 
-    child.stderr.on('data', chunk => {
-      stderr += chunk.toString();
-      if (stderr.length > 30000) stderr = stderr.slice(-30000);
-    });
+          if (
+            timeoutHandle
+          ) {
 
-    child.on('error', finishReject);
+            clearTimeout(
+              timeoutHandle
+            );
 
-    child.on('close', code => {
-      if (settled) return;
-      if (code === 0) {
-        finishResolve({ stdout, stderr });
-        return;
+            timeoutHandle =
+              null;
+          }
+        };
+
+
+      const finishReject =
+        error => {
+
+          if (settled) {
+            return;
+          }
+
+          settled =
+            true;
+
+          cleanup();
+
+          console.error(
+            `[standalone] PROCESS FAIL label=${label} elapsed_s=${((Date.now() - startedAt) / 1000).toFixed(3)} error=${cleanText(error?.message)}`
+          );
+
+          reject(error);
+        };
+
+
+      const finishResolve =
+        result => {
+
+          if (settled) {
+            return;
+          }
+
+          settled =
+            true;
+
+          cleanup();
+
+          console.log(
+            `[standalone] PROCESS DONE label=${label} elapsed_s=${((Date.now() - startedAt) / 1000).toFixed(3)}`
+          );
+
+          resolve(result);
+        };
+
+
+      if (
+        Number.isFinite(
+          timeoutMs
+        ) &&
+        timeoutMs > 0
+      ) {
+
+        timeoutHandle =
+          setTimeout(
+            () => {
+
+              try {
+
+                if (
+                  !child.killed
+                ) {
+
+                  child.kill(
+                    'SIGKILL'
+                  );
+                }
+
+              } catch (_) {}
+
+              const error =
+                new Error(
+                  `${label} process timeout after ${Math.round(timeoutMs / 1000)} seconds`
+                );
+
+              error.isProcessTimeout =
+                true;
+
+              finishReject(
+                error
+              );
+
+            },
+            timeoutMs
+          );
       }
-      finishReject(
-        new Error(`${command} exited with code ${code}\n${stderr}`)
-      );
-    });
-  });
-}
 
-async function getStandaloneMediaDuration(filePath) {
-  const result = await runStandaloneProcess(
-    'ffprobe',
-    [
-      '-v', 'error',
-      '-show_entries', 'format=duration',
-      '-of', 'default=noprint_wrappers=1:nokey=1',
-      filePath
-    ],
-    {
-      timeoutMs: 120000,
-      label: 'subtitle_ffprobe'
+
+      child.stdout.on(
+        'data',
+        chunk => {
+
+          stdout +=
+            chunk.toString();
+
+          if (
+            stdout.length >
+            20000
+          ) {
+
+            stdout =
+              stdout.slice(
+                -20000
+              );
+          }
+        }
+      );
+
+
+      child.stderr.on(
+        'data',
+        chunk => {
+
+          stderr +=
+            chunk.toString();
+
+          if (
+            stderr.length >
+            30000
+          ) {
+
+            stderr =
+              stderr.slice(
+                -30000
+              );
+          }
+        }
+      );
+
+
+      child.on(
+        'error',
+        error => {
+
+          finishReject(
+            error
+          );
+        }
+      );
+
+
+      child.on(
+        'close',
+        code => {
+
+          if (settled) {
+            return;
+          }
+
+          if (
+            code === 0
+          ) {
+
+            finishResolve({
+              stdout,
+              stderr
+            });
+
+            return;
+          }
+
+          finishReject(
+            new Error(
+              `${command} exited with code ${code}\n${stderr}`
+            )
+          );
+        }
+      );
     }
   );
+}
 
-  const duration = Number(cleanText(result.stdout));
-  if (!Number.isFinite(duration) || duration <= 0) {
-    throw new Error(`Unable to determine media duration: ${filePath}`);
+
+// ============================================================
+// STANDALONE FFPROBE
+// ============================================================
+
+async function getStandaloneMediaDuration(
+  filePath
+) {
+
+  const result =
+    await runStandaloneProcess(
+      'ffprobe',
+      [
+        '-v',
+        'error',
+
+        '-show_entries',
+        'format=duration',
+
+        '-of',
+        'default=noprint_wrappers=1:nokey=1',
+
+        filePath
+      ],
+      {
+        timeoutMs:
+          120000,
+
+        label:
+          'standalone_ffprobe'
+      }
+    );
+
+  const duration =
+    Number(
+      cleanText(
+        result.stdout
+      )
+    );
+
+  if (
+    !Number.isFinite(
+      duration
+    ) ||
+    duration <= 0
+  ) {
+
+    throw new Error(
+      `Unable to determine media duration: ${filePath}`
+    );
   }
+
   return duration;
 }
 
-function escapeSubtitleFilterPath(filePath) {
-  return String(filePath)
-    .replace(/\\/g, '/')
-    .replace(/:/g, '\\:')
-    .replace(/'/g, "\\'")
-    .replace(/,/g, '\\,')
-    .replace(/\[/g, '\\[')
-    .replace(/\]/g, '\\]');
+
+// ============================================================
+// AUDIO PROBE DOWNLOAD
+// ============================================================
+
+async function downloadProbeFile({
+  url,
+  destination,
+  partIndex
+}) {
+
+  const cleanUrl =
+    cleanText(
+      url
+    );
+
+  if (
+    !cleanUrl
+  ) {
+
+    throw new Error(
+      `Audio Part ${partIndex} missing audio_url`
+    );
+  }
+
+  let lastError =
+    null;
+
+  for (
+    let attempt = 1;
+    attempt <=
+    DOWNLOAD_MAX_ATTEMPTS;
+    attempt++
+  ) {
+
+    const controller =
+      new AbortController();
+
+    let timedOut =
+      false;
+
+    const timeoutHandle =
+      setTimeout(
+        () => {
+
+          timedOut =
+            true;
+
+          controller.abort();
+
+        },
+        DOWNLOAD_TIMEOUT_MS
+      );
+
+    try {
+
+      const response =
+        await fetch(
+          cleanUrl,
+          {
+            redirect:
+              'follow',
+
+            signal:
+              controller.signal,
+
+            headers: {
+              'User-Agent':
+                'Midnight-Files-Audio-Probe/2.5'
+            }
+          }
+        );
+
+      if (
+        !response.ok
+      ) {
+
+        const error =
+          new Error(
+            `Audio Part ${partIndex} download failed: HTTP ${response.status} ${response.statusText}`
+          );
+
+        error.httpStatus =
+          response.status;
+
+        throw error;
+      }
+
+      const contentType =
+        cleanText(
+          response.headers.get(
+            'content-type'
+          )
+        )
+          .toLowerCase();
+
+      if (
+        contentType.includes(
+          'text/html'
+        )
+      ) {
+
+        const error =
+          new Error(
+            `Audio Part ${partIndex} download returned HTML instead of audio. Check Google Drive sharing permission.`
+          );
+
+        error.noRetry =
+          true;
+
+        throw error;
+      }
+
+      const buffer =
+        Buffer.from(
+          await response
+            .arrayBuffer()
+        );
+
+      if (
+        buffer.length <
+        100
+      ) {
+
+        throw new Error(
+          `Audio Part ${partIndex} is unexpectedly small (${buffer.length} bytes)`
+        );
+      }
+
+      await fsp.writeFile(
+        destination,
+        buffer
+      );
+
+      clearTimeout(
+        timeoutHandle
+      );
+
+      return {
+        bytes:
+          buffer.length,
+
+        content_type:
+          contentType,
+
+        attempts:
+          attempt
+      };
+
+    } catch (error) {
+
+      clearTimeout(
+        timeoutHandle
+      );
+
+      const wrapped =
+        new Error(
+          timedOut
+            ? `Audio Part ${partIndex} download timeout after ${DOWNLOAD_TIMEOUT_MS / 1000}s`
+            : cleanText(
+                error.message
+              ) ||
+              `Audio Part ${partIndex} download failed`
+        );
+
+      wrapped.httpStatus =
+        error.httpStatus ??
+        null;
+
+      lastError =
+        wrapped;
+
+      const retryable =
+        !error.noRetry &&
+        (
+          timedOut ||
+          !Number.isFinite(
+            error.httpStatus
+          ) ||
+          shouldRetryHttpStatus(
+            error.httpStatus
+          )
+        );
+
+      if (
+        !retryable ||
+        attempt >=
+        DOWNLOAD_MAX_ATTEMPTS
+      ) {
+
+        throw wrapped;
+      }
+
+      const backoffMs =
+        Math.min(
+          8000,
+          1000 *
+          Math.pow(
+            2,
+            attempt - 1
+          )
+        );
+
+      await sleep(
+        backoffMs
+      );
+    }
+  }
+
+  throw (
+    lastError ||
+    new Error(
+      `Audio Part ${partIndex} download failed`
+    )
+  );
 }
 
 
-function publicSubtitleJob(job) {
+// ============================================================
+// AUDIO DURATION CLASSIFICATION
+// ============================================================
+
+function classifyNarrationDuration(
+  seconds
+) {
+
+  if (
+    seconds <
+    TARGET_MIN_SECONDS
+  ) {
+
+    return {
+      status:
+        'TOO_SHORT',
+
+      pass:
+        false,
+
+      message:
+        `Narration is shorter than ${TARGET_MIN_SECONDS} seconds.`
+    };
+  }
+
+  if (
+    seconds <=
+    TARGET_IDEAL_MAX_SECONDS
+  ) {
+
+    return {
+      status:
+        'IDEAL',
+
+      pass:
+        true,
+
+      message:
+        `Narration is within the ideal ${TARGET_MIN_SECONDS}-${TARGET_IDEAL_MAX_SECONDS} second range.`
+    };
+  }
+
+  if (
+    seconds <=
+    TARGET_HARD_MAX_SECONDS
+  ) {
+
+    return {
+      status:
+        'ACCEPTABLE_LONG',
+
+      pass:
+        true,
+
+      message:
+        `Narration is longer than the ideal range but within the accepted maximum of ${TARGET_HARD_MAX_SECONDS} seconds.`
+    };
+  }
+
+  return {
+    status:
+      'TOO_LONG',
+
+    pass:
+      false,
+
+    message:
+      `Narration exceeds the accepted maximum of ${TARGET_HARD_MAX_SECONDS} seconds.`
+  };
+}
+
+
+// ============================================================
+// SUBTITLE HELPERS
+// ============================================================
+
+function escapeSubtitleFilterPath(
+  filePath
+) {
+
+  return String(
+    filePath
+  )
+    .replace(
+      /\\/g,
+      '/'
+    )
+    .replace(
+      /:/g,
+      '\\:'
+    )
+    .replace(
+      /'/g,
+      "\\'"
+    )
+    .replace(
+      /,/g,
+      '\\,'
+    )
+    .replace(
+      /\[/g,
+      '\\['
+    )
+    .replace(
+      /\]/g,
+      '\\]'
+    );
+}
+
+
+function publicSubtitleJob(
+  job
+) {
+
   if (!job) {
     return null;
   }
 
   return {
+
     job_id:
       job.job_id,
 
@@ -1077,40 +1690,52 @@ function publicSubtitleJob(job) {
       job.status,
 
     progress:
-      job.progress ?? null,
+      job.progress ??
+      null,
 
     current_step:
-      job.current_step ?? null,
+      job.current_step ??
+      null,
 
     created_at:
-      job.created_at ?? null,
+      job.created_at ??
+      null,
 
     started_at:
-      job.started_at ?? null,
+      job.started_at ??
+      null,
 
     completed_at:
-      job.completed_at ?? null,
+      job.completed_at ??
+      null,
 
     input_duration:
-      job.input_duration ?? null,
+      job.input_duration ??
+      null,
 
     output_duration:
-      job.output_duration ?? null,
+      job.output_duration ??
+      null,
 
     duration_difference:
-      job.duration_difference ?? null,
+      job.duration_difference ??
+      null,
 
     input_size_bytes:
-      job.input_size_bytes ?? null,
+      job.input_size_bytes ??
+      null,
 
     output_size_bytes:
-      job.output_size_bytes ?? null,
+      job.output_size_bytes ??
+      null,
 
     error:
-      job.error ?? null,
+      job.error ??
+      null,
 
     download_url:
-      job.status === 'completed'
+      job.status ===
+      'completed'
         ? `/download-subtitled/${job.job_id}`
         : null
   };
@@ -1121,8 +1746,11 @@ function updateSubtitleJob(
   jobId,
   patch
 ) {
+
   const job =
-    subtitleJobs.get(jobId);
+    subtitleJobs.get(
+      jobId
+    );
 
   if (!job) {
     return;
@@ -1135,9 +1763,18 @@ function updateSubtitleJob(
 }
 
 
-async function processSubtitleBurnJob(jobId) {
+// ============================================================
+// SUBTITLE PROCESS
+// ============================================================
+
+async function processSubtitleBurnJob(
+  jobId
+) {
+
   const job =
-    subtitleJobs.get(jobId);
+    subtitleJobs.get(
+      jobId
+    );
 
   if (!job) {
     return;
@@ -1156,6 +1793,7 @@ async function processSubtitleBurnJob(jobId) {
     job.output_path;
 
   try {
+
     updateSubtitleJob(
       jobId,
       {
@@ -1185,6 +1823,7 @@ async function processSubtitleBurnJob(jobId) {
       inputStat.size <
       10000
     ) {
+
       throw new Error(
         `Uploaded video is unexpectedly small: ${inputStat.size} bytes`
       );
@@ -1209,7 +1848,8 @@ async function processSubtitleBurnJob(jobId) {
 
         input_duration:
           Number(
-            inputDuration.toFixed(3)
+            inputDuration
+              .toFixed(3)
           )
       }
     );
@@ -1223,17 +1863,44 @@ async function processSubtitleBurnJob(jobId) {
       'ffmpeg',
       [
         '-y',
-        '-i', inputPath,
-        '-vf', `ass='${escapedAssPath}'`,
-        '-map', '0:v:0',
-        '-map', '0:a?',
-        '-c:v', 'libx264',
-        '-preset', SUBTITLE_FFMPEG_PRESET,
-        '-crf', String(SUBTITLE_FFMPEG_CRF),
-        '-threads', String(SUBTITLE_FFMPEG_THREADS),
-        '-pix_fmt', 'yuv420p',
-        '-c:a', 'copy',
-        '-movflags', '+faststart',
+
+        '-i',
+        inputPath,
+
+        '-vf',
+        `ass='${escapedAssPath}'`,
+
+        '-map',
+        '0:v:0',
+
+        '-map',
+        '0:a?',
+
+        '-c:v',
+        'libx264',
+
+        '-preset',
+        SUBTITLE_FFMPEG_PRESET,
+
+        '-crf',
+        String(
+          SUBTITLE_FFMPEG_CRF
+        ),
+
+        '-threads',
+        String(
+          SUBTITLE_FFMPEG_THREADS
+        ),
+
+        '-pix_fmt',
+        'yuv420p',
+
+        '-c:a',
+        'copy',
+
+        '-movflags',
+        '+faststart',
+
         outputPath
       ],
       {
@@ -1265,6 +1932,7 @@ async function processSubtitleBurnJob(jobId) {
       outputStat.size <
       10000
     ) {
+
       throw new Error(
         `Subtitled output is unexpectedly small: ${outputStat.size} bytes`
       );
@@ -1285,6 +1953,7 @@ async function processSubtitleBurnJob(jobId) {
       durationDifference >
       2.0
     ) {
+
       throw new Error(
         `Subtitle burn duration mismatch. input=${inputDuration.toFixed(3)} output=${outputDuration.toFixed(3)} difference=${durationDifference.toFixed(3)}`
       );
@@ -1307,12 +1976,14 @@ async function processSubtitleBurnJob(jobId) {
 
         output_duration:
           Number(
-            outputDuration.toFixed(3)
+            outputDuration
+              .toFixed(3)
           ),
 
         duration_difference:
           Number(
-            durationDifference.toFixed(3)
+            durationDifference
+              .toFixed(3)
           ),
 
         output_size_bytes:
@@ -1324,16 +1995,22 @@ async function processSubtitleBurnJob(jobId) {
     );
 
     try {
+
       await fsp.rm(
         workDir,
         {
-          recursive: true,
-          force: true
+          recursive:
+            true,
+
+          force:
+            true
         }
       );
+
     } catch (_) {}
 
   } catch (error) {
+
     console.error(
       `[${jobId}] Subtitle burn failed`,
       error
@@ -1352,32 +2029,41 @@ async function processSubtitleBurnJob(jobId) {
           nowIso(),
 
         error:
-          cleanText(error.message) ||
+          cleanText(
+            error.message
+          ) ||
           'Unknown subtitle burn error'
       }
     );
 
     try {
+
       await fsp.rm(
         workDir,
         {
-          recursive: true,
-          force: true
+          recursive:
+            true,
+
+          force:
+            true
         }
       );
+
     } catch (_) {}
 
     try {
+
       await fsp.rm(
         outputPath,
         {
-          force: true
+          force:
+            true
         }
       );
+
     } catch (_) {}
   }
 }
-
 // ============================================================
 // DOWNLOAD
 // ============================================================
@@ -1421,7 +2107,7 @@ async function downloadFile({
   for (
     let attempt = 1;
     attempt <=
-    DOWNLOAD_MAX_ATTEMPTS;
+      DOWNLOAD_MAX_ATTEMPTS;
     attempt++
   ) {
 
@@ -1455,7 +2141,9 @@ async function downloadFile({
       () => {
 
         try {
+
           controller.abort();
+
         } catch (_) {}
       };
 
@@ -1505,7 +2193,7 @@ async function downloadFile({
 
             headers: {
               'User-Agent':
-                'Midnight-Files-Render/2.1'
+                'Midnight-Files-Render/2.5'
             }
           }
         );
@@ -1814,9 +2502,18 @@ function drawTextFilter({
 
   const escapedFont =
     String(fontFile)
-      .replace(/\\/g, '\\\\')
-      .replace(/:/g, '\\:')
-      .replace(/'/g, "\\'");
+      .replace(
+        /\\/g,
+        '\\\\'
+      )
+      .replace(
+        /:/g,
+        '\\:'
+      )
+      .replace(
+        /'/g,
+        "\\'"
+      );
 
   const args = [
 
@@ -2227,8 +2924,6 @@ function normalizePresentation(
     }
   };
 }
-
-
 // ============================================================
 // PAYLOAD VALIDATION
 // ============================================================
@@ -2237,92 +2932,186 @@ function validateScenes(
   scenes
 ) {
 
-  if (!Array.isArray(scenes) || scenes.length < EXPECTED_SHOTS_PER_SCENE) {
-    throw new Error('scenes must contain visual items');
+  if (
+    !Array.isArray(
+      scenes
+    ) ||
+    scenes.length <
+      EXPECTED_SHOTS_PER_SCENE
+  ) {
+
+    throw new Error(
+      'scenes must contain visual items'
+    );
   }
 
-  if (scenes.length % EXPECTED_SHOTS_PER_SCENE !== 0) {
+  if (
+    scenes.length %
+      EXPECTED_SHOTS_PER_SCENE !==
+    0
+  ) {
+
     throw new Error(
       `Visual count ${scenes.length} is not divisible by ${EXPECTED_SHOTS_PER_SCENE} shots per scene`
     );
   }
 
-  const expectedScenes = scenes.length / EXPECTED_SHOTS_PER_SCENE;
+  const expectedScenes =
+    scenes.length /
+    EXPECTED_SHOTS_PER_SCENE;
 
   if (
-    !Number.isInteger(expectedScenes) ||
-    expectedScenes < MIN_SCENES ||
-    expectedScenes > MAX_SCENES
+    !Number.isInteger(
+      expectedScenes
+    ) ||
+    expectedScenes <
+      MIN_SCENES ||
+    expectedScenes >
+      MAX_SCENES
   ) {
+
     throw new Error(
       `Scene count must be ${MIN_SCENES}-${MAX_SCENES}; received ${expectedScenes}`
     );
   }
 
-  const keySet = new Set();
-  const renderIndexSet = new Set();
+  const keySet =
+    new Set();
 
-  for (const visual of scenes) {
-    const sceneNumber = safeNumber(visual.scene_number, null);
-    const shotIndex = safeNumber(
-      visual.shot_index ?? visual.shot_number,
-      null
-    );
-    const renderIndex = safeNumber(visual.render_index, null);
+  const renderIndexSet =
+    new Set();
+
+  for (
+    const visual of
+    scenes
+  ) {
+
+    const sceneNumber =
+      safeNumber(
+        visual.scene_number,
+        null
+      );
+
+    const shotIndex =
+      safeNumber(
+        visual.shot_index ??
+        visual.shot_number,
+        null
+      );
+
+    const renderIndex =
+      safeNumber(
+        visual.render_index,
+        null
+      );
 
     if (
-      !Number.isInteger(sceneNumber) ||
+      !Number.isInteger(
+        sceneNumber
+      ) ||
       sceneNumber < 1 ||
-      sceneNumber > expectedScenes
+      sceneNumber >
+        expectedScenes
     ) {
-      throw new Error(`Invalid scene_number: ${sceneNumber}`);
+
+      throw new Error(
+        `Invalid scene_number: ${sceneNumber}`
+      );
     }
 
     if (
-      !Number.isInteger(shotIndex) ||
+      !Number.isInteger(
+        shotIndex
+      ) ||
       shotIndex < 1 ||
-      shotIndex > EXPECTED_SHOTS_PER_SCENE
+      shotIndex >
+        EXPECTED_SHOTS_PER_SCENE
     ) {
+
       throw new Error(
         `Invalid shot_index at Scene ${sceneNumber}: ${shotIndex}`
       );
     }
 
-    const key = `${sceneNumber}-${shotIndex}`;
-    if (keySet.has(key)) {
+    const key =
+      `${sceneNumber}-${shotIndex}`;
+
+    if (
+      keySet.has(
+        key
+      )
+    ) {
+
       throw new Error(
         `Duplicate visual: Scene ${sceneNumber} Shot ${shotIndex}`
       );
     }
-    keySet.add(key);
+
+    keySet.add(
+      key
+    );
 
     if (
-      !Number.isInteger(renderIndex) ||
+      !Number.isInteger(
+        renderIndex
+      ) ||
       renderIndex < 1 ||
-      renderIndex > scenes.length
+      renderIndex >
+        scenes.length
     ) {
-      throw new Error(`Invalid render_index: ${renderIndex}`);
+
+      throw new Error(
+        `Invalid render_index: ${renderIndex}`
+      );
     }
 
-    if (renderIndexSet.has(renderIndex)) {
-      throw new Error(`Duplicate render_index: ${renderIndex}`);
-    }
-    renderIndexSet.add(renderIndex);
+    if (
+      renderIndexSet.has(
+        renderIndex
+      )
+    ) {
 
-    if (!cleanText(visual.image_url)) {
+      throw new Error(
+        `Duplicate render_index: ${renderIndex}`
+      );
+    }
+
+    renderIndexSet.add(
+      renderIndex
+    );
+
+    if (
+      !cleanText(
+        visual.image_url
+      )
+    ) {
+
       throw new Error(
         `Scene ${sceneNumber} Shot ${shotIndex} missing image_url`
       );
     }
   }
 
-  for (let sceneNumber = 1; sceneNumber <= expectedScenes; sceneNumber++) {
+  for (
+    let sceneNumber = 1;
+    sceneNumber <=
+      expectedScenes;
+    sceneNumber++
+  ) {
+
     for (
       let shotIndex = 1;
-      shotIndex <= EXPECTED_SHOTS_PER_SCENE;
+      shotIndex <=
+        EXPECTED_SHOTS_PER_SCENE;
       shotIndex++
     ) {
-      if (!keySet.has(`${sceneNumber}-${shotIndex}`)) {
+
+      if (
+        !keySet.has(
+          `${sceneNumber}-${shotIndex}`
+        )
+      ) {
+
         throw new Error(
           `Missing Scene ${sceneNumber} Shot ${shotIndex}`
         );
@@ -2330,15 +3119,29 @@ function validateScenes(
     }
   }
 
-  for (let index = 1; index <= scenes.length; index++) {
-    if (!renderIndexSet.has(index)) {
-      throw new Error(`Missing render_index ${index}`);
+  for (
+    let index = 1;
+    index <=
+      scenes.length;
+    index++
+  ) {
+
+    if (
+      !renderIndexSet.has(
+        index
+      )
+    ) {
+
+      throw new Error(
+        `Missing render_index ${index}`
+      );
     }
   }
 
   return {
     expectedScenes,
-    expectedVisuals: scenes.length
+    expectedVisuals:
+      scenes.length
   };
 }
 
@@ -2413,7 +3216,9 @@ function validateAudioParts(
         part.audio_url
       );
 
-    if (!audioUrl) {
+    if (
+      !audioUrl
+    ) {
 
       throw new Error(
         `Audio Part ${partIndex} missing audio_url`
@@ -2441,7 +3246,9 @@ function validateAudioParts(
         part.file_id
       );
 
-    if (!fileId) {
+    if (
+      !fileId
+    ) {
 
       throw new Error(
         `Audio Part ${partIndex} missing audio_file_id`
@@ -2483,7 +3290,7 @@ function validateAudioParts(
   for (
     let index = 1;
     index <=
-    audioParts.length;
+      audioParts.length;
     index++
   ) {
 
@@ -2515,10 +3322,17 @@ function normalizeSceneTimings({
       input
     );
 
-  const expectedScenes = Math.max(
-    1,
-    ...scenes.map(visual => safeNumber(visual.scene_number, 0))
-  );
+  const expectedScenes =
+    Math.max(
+      1,
+      ...scenes.map(
+        visual =>
+          safeNumber(
+            visual.scene_number,
+            0
+          )
+      )
+    );
 
   const fallbackMap =
     new Map();
@@ -2564,11 +3378,12 @@ function normalizeSceneTimings({
     }
   }
 
-  let normalized = [];
+  let normalized =
+    [];
 
   if (
     supplied.length ===
-    expectedScenes
+      expectedScenes
   ) {
 
     normalized =
@@ -2636,7 +3451,10 @@ function normalizeSceneTimings({
   }
 
   normalized.sort(
-    (a, b) =>
+    (
+      a,
+      b
+    ) =>
       a.scene_number -
       b.scene_number
   );
@@ -2652,7 +3470,9 @@ function normalizeSceneTimings({
   ) {
 
     const item =
-      normalized[index];
+      normalized[
+        index
+      ];
 
     const expected =
       index + 1;
@@ -2783,7 +3603,8 @@ function buildSceneTimeline({
       );
   }
 
-  const timeline = [];
+  const timeline =
+    [];
 
   let allocated =
     0;
@@ -2796,7 +3617,9 @@ function buildSceneTimeline({
   ) {
 
     const timing =
-      sceneTimings[index];
+      sceneTimings[
+        index
+      ];
 
     const sceneNumber =
       timing.scene_number;
@@ -2809,7 +3632,7 @@ function buildSceneTimeline({
 
     if (
       visuals.length !==
-      EXPECTED_SHOTS_PER_SCENE
+        EXPECTED_SHOTS_PER_SCENE
     ) {
 
       throw new Error(
@@ -2949,8 +3772,6 @@ function buildSceneTimeline({
 
   return timeline;
 }
-
-
 // ============================================================
 // SILENCE
 // ============================================================
@@ -3117,21 +3938,29 @@ async function createOpeningCard({
       '+faststart',
 
       '-t',
-      String(opening.duration),
+      String(
+        opening.duration
+      ),
 
       '-frames:v',
       String(
         Math.max(
           1,
-          Math.ceil(opening.duration * fps)
+          Math.ceil(
+            opening.duration *
+            fps
+          )
         )
       ),
 
       destination
     ],
     {
-      timeoutMs: CARD_PROCESS_TIMEOUT_MS,
-      label: 'opening_card_ffmpeg'
+      timeoutMs:
+        CARD_PROCESS_TIMEOUT_MS,
+
+      label:
+        'opening_card_ffmpeg'
     }
   );
 }
@@ -3276,21 +4105,29 @@ async function createEndingCard({
       '+faststart',
 
       '-t',
-      String(ending.duration),
+      String(
+        ending.duration
+      ),
 
       '-frames:v',
       String(
         Math.max(
           1,
-          Math.ceil(ending.duration * fps)
+          Math.ceil(
+            ending.duration *
+            fps
+          )
         )
       ),
 
       destination
     ],
     {
-      timeoutMs: CARD_PROCESS_TIMEOUT_MS,
-      label: 'ending_card_ffmpeg'
+      timeoutMs:
+        CARD_PROCESS_TIMEOUT_MS,
+
+      label:
+        'ending_card_ffmpeg'
     }
   );
 }
@@ -3338,7 +4175,8 @@ async function createVisualSegment({
       visual.presentation
     );
 
-  const filters = [];
+  const filters =
+    [];
 
   filters.push(
     `scale=${width}:${height}:force_original_aspect_ratio=increase`
@@ -3693,8 +4531,6 @@ async function createVisualSegment({
     ]
   );
 }
-
-
 // ============================================================
 // CONCAT VIDEO
 // ============================================================
@@ -3913,7 +4749,8 @@ async function buildFinalAudioTimeline({
   settings
 }) {
 
-  const parts = [];
+  const parts =
+    [];
 
   if (
     openingDuration > 0
@@ -4002,6 +4839,7 @@ async function muxFinal({
 
   // Do NOT use -shortest.
   // Durations are validated before muxing.
+
   await runProcess(
     jobId,
     'ffmpeg',
@@ -4039,8 +4877,6 @@ async function muxFinal({
     ]
   );
 }
-
-
 // ============================================================
 // MAIN RENDER
 // ============================================================
@@ -4102,21 +4938,24 @@ async function processRender(
       fsp.mkdir(
         imageDir,
         {
-          recursive: true
+          recursive:
+            true
         }
       ),
 
       fsp.mkdir(
         audioDir,
         {
-          recursive: true
+          recursive:
+            true
         }
       ),
 
       fsp.mkdir(
         segmentDir,
         {
-          recursive: true
+          recursive:
+            true
         }
       )
     ]);
@@ -4563,9 +5402,7 @@ async function processRender(
           )
       }
     );
-
-
-    // --------------------------------------------------------
+        // --------------------------------------------------------
     // BUILD SCENE TIMELINE
     // --------------------------------------------------------
 
@@ -4852,115 +5689,242 @@ async function processRender(
       new Map();
 
     const renderedSegmentPaths =
-      new Array(scenes.length);
+      new Array(
+        scenes.length
+      );
 
-    let nextVisualIndex = 0;
-    let completedVisuals = 0;
+    let nextVisualIndex =
+      0;
+
+    let completedVisuals =
+      0;
+
 
     async function renderVisualWorker() {
-      while (true) {
-        assertJobActive(jobId);
 
-        const index = nextVisualIndex++;
-        if (index >= scenes.length) {
+      while (true) {
+
+        assertJobActive(
+          jobId
+        );
+
+        const index =
+          nextVisualIndex++;
+
+        if (
+          index >=
+          scenes.length
+        ) {
           return;
         }
 
-        const visual = scenes[index] ?? {};
-        const sceneNumber = safeNumber(visual.scene_number, null);
-        const shotIndex = safeNumber(visual.shot_index, null);
-        const timeline = sceneTimeline.find(
-          item => item.scene_number === sceneNumber
-        );
+
+        const visual =
+          scenes[index] ??
+          {};
+
+
+        const sceneNumber =
+          safeNumber(
+            visual.scene_number,
+            null
+          );
+
+
+        const shotIndex =
+          safeNumber(
+            visual.shot_index,
+            null
+          );
+
+
+        const timeline =
+          sceneTimeline.find(
+            item =>
+              item.scene_number ===
+              sceneNumber
+          );
+
 
         if (!timeline) {
-          const error = new Error(
-            `No timeline found for Scene ${sceneNumber}`
-          );
-          error.sceneNumber = sceneNumber;
-          error.shotIndex = shotIndex;
+
+          const error =
+            new Error(
+              `No timeline found for Scene ${sceneNumber}`
+            );
+
+          error.sceneNumber =
+            sceneNumber;
+
+          error.shotIndex =
+            shotIndex;
+
           throw error;
         }
 
-        // Duration is deterministic from shot index; no shared mutable
-        // counter is needed, so workers can render safely in parallel.
-        let duration = timeline.shot_duration;
-        if (shotIndex === EXPECTED_SHOTS_PER_SCENE) {
-          duration = timeline.duration -
+
+        // Duration is deterministic from shot index.
+        // Workers can render safely in parallel.
+
+        let duration =
+          timeline.shot_duration;
+
+
+        if (
+          shotIndex ===
+          EXPECTED_SHOTS_PER_SCENE
+        ) {
+
+          duration =
+            timeline.duration -
             timeline.shot_duration *
-            (EXPECTED_SHOTS_PER_SCENE - 1);
+            (
+              EXPECTED_SHOTS_PER_SCENE -
+              1
+            );
         }
 
-        if (!Number.isFinite(duration) || duration <= 0) {
-          const error = new Error(
-            `Invalid duration for Scene ${sceneNumber} Shot ${shotIndex}: ${duration}`
-          );
-          error.sceneNumber = sceneNumber;
-          error.shotIndex = shotIndex;
+
+        if (
+          !Number.isFinite(
+            duration
+          ) ||
+          duration <= 0
+        ) {
+
+          const error =
+            new Error(
+              `Invalid duration for Scene ${sceneNumber} Shot ${shotIndex}: ${duration}`
+            );
+
+          error.sceneNumber =
+            sceneNumber;
+
+          error.shotIndex =
+            shotIndex;
+
           throw error;
         }
 
-        const segmentPath = path.join(
-          segmentDir,
-          `segment_${String(index + 1).padStart(3, '0')}.mp4`
-        );
+
+        const segmentPath =
+          path.join(
+            segmentDir,
+            `segment_${String(index + 1).padStart(3, '0')}.mp4`
+          );
+
 
         await createVisualSegment({
           jobId,
-          imagePath: imagePaths[index],
-          destination: segmentPath,
+
+          imagePath:
+            imagePaths[index],
+
+          destination:
+            segmentPath,
+
           duration,
+
           visual,
+
           settings,
-          presentationSettings: presentation,
+
+          presentationSettings:
+            presentation,
+
           fontFile
         });
 
-        renderedSegmentPaths[index] = segmentPath;
+
+        renderedSegmentPaths[
+          index
+        ] =
+          segmentPath;
+
+
         renderedShotsPerScene.set(
           sceneNumber,
-          (renderedShotsPerScene.get(sceneNumber) || 0) + 1
+          (
+            renderedShotsPerScene.get(
+              sceneNumber
+            ) ||
+            0
+          ) +
+          1
         );
 
+
         completedVisuals++;
-        updateJob(jobId, {
-          progress: Math.min(
-            82,
-            30 + Math.floor((completedVisuals / scenes.length) * 52)
-          ),
-          current_step:
-            `rendering_visuals_${completedVisuals}_of_${scenes.length}`
-        });
+
+
+        updateJob(
+          jobId,
+          {
+            progress:
+              Math.min(
+                82,
+                30 +
+                Math.floor(
+                  (
+                    completedVisuals /
+                    scenes.length
+                  ) *
+                  52
+                )
+              ),
+
+            current_step:
+              `rendering_visuals_${completedVisuals}_of_${scenes.length}`
+          }
+        );
       }
     }
 
-    const workerCount = Math.min(
-      VISUAL_RENDER_CONCURRENCY,
-      scenes.length
-    );
+
+    const workerCount =
+      Math.min(
+        VISUAL_RENDER_CONCURRENCY,
+        scenes.length
+      );
+
 
     await Promise.all(
       Array.from(
-        { length: workerCount },
-        () => renderVisualWorker()
+        {
+          length:
+            workerCount
+        },
+        () =>
+          renderVisualWorker()
       )
     );
 
-    for (let sceneNumber = 1; sceneNumber <= sceneTimeline.length; sceneNumber++) {
+
+    for (
+      let sceneNumber = 1;
+      sceneNumber <=
+        sceneTimeline.length;
+      sceneNumber++
+    ) {
+
       if (
-        renderedShotsPerScene.get(sceneNumber) !==
+        renderedShotsPerScene.get(
+          sceneNumber
+        ) !==
         EXPECTED_SHOTS_PER_SCENE
       ) {
+
         throw new Error(
           `Scene ${sceneNumber} rendered shot count mismatch`
         );
       }
     }
 
-    videoSegments.push(...renderedSegmentPaths);
 
-
-    // --------------------------------------------------------
+    videoSegments.push(
+      ...renderedSegmentPaths
+    );
+        // --------------------------------------------------------
     // ENDING
     // --------------------------------------------------------
 
@@ -5350,9 +6314,11 @@ async function processRenderWithTimeout(
 
   // Server is authoritative for render-job lifetime.
   // Upstream/n8n payload cannot shorten the job timeout.
+
   const timeoutSeconds =
     HARD_TIMEOUT_MINUTES *
     60;
+
 
   console.log(
     `[${jobId}] HARD TIMEOUT armed effective_seconds=${timeoutSeconds} effective_minutes=${HARD_TIMEOUT_MINUTES}`
@@ -5378,7 +6344,10 @@ async function processRenderWithTimeout(
                   jobId
                 );
 
-              if (!currentJob) {
+
+              if (
+                !currentJob
+              ) {
 
                 reject(
                   new Error(
@@ -5491,8 +6460,6 @@ async function processRenderWithTimeout(
     );
   }
 }
-
-
 // ============================================================
 // HEALTH
 // ============================================================
@@ -5565,17 +6532,47 @@ app.get(
         visual_render_concurrency:
           VISUAL_RENDER_CONCURRENCY,
 
-        download_retry:
-          {
-            enabled:
-              true,
+        download_retry: {
 
-            max_attempts:
-              DOWNLOAD_MAX_ATTEMPTS
-          },
+          enabled:
+            true,
+
+          max_attempts:
+            DOWNLOAD_MAX_ATTEMPTS
+        },
 
         duration_qa:
           true,
+
+
+        // ----------------------------------------------------
+        // NEW: AUDIO PROBE
+        // ----------------------------------------------------
+
+        audio_probe_support:
+          true,
+
+        audio_probe_endpoint:
+          'POST /probe-audio',
+
+        audio_probe_uses_ffprobe:
+          true,
+
+        audio_probe_requires_images:
+          false,
+
+        audio_probe_target_seconds: {
+
+          minimum:
+            TARGET_MIN_SECONDS,
+
+          ideal_maximum:
+            TARGET_IDEAL_MAX_SECONDS,
+
+          hard_maximum:
+            TARGET_HARD_MAX_SECONDS
+        },
+
 
         presentation_support: {
 
@@ -5594,6 +6591,7 @@ app.get(
           ending_card:
             true
         },
+
 
         subtitle_burn_support:
           true,
@@ -5620,7 +6618,10 @@ app.get(
           SUBTITLE_UPLOAD_LIMIT_BYTES,
 
         subtitle_process_timeout_minutes:
-          Math.round(SUBTITLE_PROCESS_TIMEOUT_MS / 60000),
+          Math.round(
+            SUBTITLE_PROCESS_TIMEOUT_MS /
+            60000
+          ),
 
         time:
           nowIso()
@@ -5629,7 +6630,7 @@ app.get(
 
     } catch (error) {
 
-      res
+      return res
         .status(500)
         .json({
 
@@ -5637,7 +6638,13 @@ app.get(
             false,
 
           error:
-            error.message
+            cleanText(
+              error.message
+            ) ||
+            'Health check failed',
+
+          version:
+            SERVER_VERSION
         });
     }
   }
@@ -5645,7 +6652,507 @@ app.get(
 
 
 // ============================================================
-// CREATE JOB
+// PROBE AUDIO DURATION
+// ============================================================
+
+app.post(
+  '/probe-audio',
+  async (
+    req,
+    res
+  ) => {
+
+    const probeId =
+      createJobId();
+
+    const probeWorkDir =
+      path.join(
+        PROBE_DIR,
+        probeId
+      );
+
+    try {
+
+      await ensureDirectories();
+
+      await fsp.mkdir(
+        probeWorkDir,
+        {
+          recursive:
+            true
+        }
+      );
+
+
+      const payload =
+        req.body ??
+        {};
+
+
+      const audioParts =
+        safeArray(
+          payload.audio_parts
+        )
+          .slice()
+          .sort(
+            (
+              a,
+              b
+            ) =>
+              safeNumber(
+                a.part_index,
+                0
+              ) -
+              safeNumber(
+                b.part_index,
+                0
+              )
+          );
+
+
+      // Reuse the same validation used by the render pipeline.
+      validateAudioParts(
+        audioParts
+      );
+
+
+      // ------------------------------------------------------
+      // PRESENTATION DURATION
+      // ------------------------------------------------------
+
+      const project =
+        safeObject(
+          payload.project
+        );
+
+
+      const presentation =
+        normalizePresentation(
+          payload.presentation_settings,
+          project
+        );
+
+
+      const openingDuration =
+        presentation
+          .opening_disclaimer
+          .enabled
+          ? presentation
+              .opening_disclaimer
+              .duration
+          : 0;
+
+
+      const endingDuration =
+        presentation
+          .ending_card
+          .enabled
+          ? presentation
+              .ending_card
+              .duration
+          : 0;
+
+
+      // ------------------------------------------------------
+      // DOWNLOAD + FFPROBE EVERY AUDIO PART
+      // ------------------------------------------------------
+
+      const audioPartDurations =
+        [];
+
+
+      let rawPartDurationTotal =
+        0;
+
+
+      for (
+        let index = 0;
+        index <
+          audioParts.length;
+        index++
+      ) {
+
+        const part =
+          audioParts[index] ??
+          {};
+
+
+        const partIndex =
+          safeNumber(
+            part.part_index,
+            index + 1
+          );
+
+
+        const audioUrl =
+          cleanText(
+            part.audio_url
+          );
+
+
+        const destination =
+          path.join(
+            probeWorkDir,
+            `audio_${String(partIndex).padStart(3, '0')}.mp3`
+          );
+
+
+        const downloadResult =
+          await downloadProbeFile({
+
+            url:
+              audioUrl,
+
+            destination,
+
+            partIndex
+          });
+
+
+        const duration =
+          await getStandaloneMediaDuration(
+            destination
+          );
+
+
+        rawPartDurationTotal +=
+          duration;
+
+
+        audioPartDurations.push({
+
+          part_index:
+            partIndex,
+
+          duration_seconds:
+            Number(
+              duration.toFixed(3)
+            ),
+
+          duration_minutes:
+            Number(
+              (
+                duration /
+                60
+              ).toFixed(3)
+            ),
+
+          size_bytes:
+            downloadResult.bytes,
+
+          download_attempts:
+            downloadResult.attempts,
+
+          content_type:
+            downloadResult.content_type
+        });
+      }
+
+
+      // ------------------------------------------------------
+      // CONCAT AUDIO
+      //
+      // Important:
+      // The actual render pipeline concatenates TTS parts before
+      // measuring narration duration. Do the same here instead
+      // of trusting only the mathematical sum.
+      // ------------------------------------------------------
+
+      const concatListPath =
+        path.join(
+          probeWorkDir,
+          'probe_concat.txt'
+        );
+
+
+      const concatenatedAudioPath =
+        path.join(
+          probeWorkDir,
+          'probe_narration.m4a'
+        );
+
+
+      const concatContent =
+        audioParts
+          .map(
+            part => {
+
+              const partIndex =
+                safeNumber(
+                  part.part_index,
+                  0
+                );
+
+              const audioPath =
+                path.join(
+                  probeWorkDir,
+                  `audio_${String(partIndex).padStart(3, '0')}.mp3`
+                );
+
+              return (
+                `file '${audioPath.replace(/'/g, "'\\''")}'`
+              );
+            }
+          )
+          .join('\n');
+
+
+      await fsp.writeFile(
+        concatListPath,
+        concatContent,
+        'utf8'
+      );
+
+
+      await runStandaloneProcess(
+        'ffmpeg',
+        [
+          '-y',
+
+          '-f',
+          'concat',
+
+          '-safe',
+          '0',
+
+          '-i',
+          concatListPath,
+
+          '-ar',
+          '48000',
+
+          '-ac',
+          '2',
+
+          '-c:a',
+          'aac',
+
+          '-b:a',
+          '160k',
+
+          concatenatedAudioPath
+        ],
+        {
+          timeoutMs:
+            DEFAULT_PROCESS_TIMEOUT_MS,
+
+          label:
+            `audio_probe_concat_${probeId}`
+        }
+      );
+
+
+      // ------------------------------------------------------
+      // REAL NARRATION DURATION
+      // ------------------------------------------------------
+
+      const narrationDuration =
+        await getStandaloneMediaDuration(
+          concatenatedAudioPath
+        );
+
+
+      const expectedFinalDuration =
+        openingDuration +
+        narrationDuration +
+        endingDuration;
+
+
+      const classification =
+        classifyNarrationDuration(
+          narrationDuration
+        );
+
+
+      // ------------------------------------------------------
+      // RESPONSE
+      // ------------------------------------------------------
+
+      const response = {
+
+        ok:
+          true,
+
+        probe_id:
+          probeId,
+
+        version:
+          SERVER_VERSION,
+
+        status:
+          classification.status,
+
+        pass:
+          classification.pass,
+
+        message:
+          classification.message,
+
+        total_audio_parts:
+          audioParts.length,
+
+
+        narration_duration_seconds:
+          Number(
+            narrationDuration
+              .toFixed(3)
+          ),
+
+        narration_duration_minutes:
+          Number(
+            (
+              narrationDuration /
+              60
+            ).toFixed(3)
+          ),
+
+
+        raw_part_duration_total_seconds:
+          Number(
+            rawPartDurationTotal
+              .toFixed(3)
+          ),
+
+        raw_part_duration_total_minutes:
+          Number(
+            (
+              rawPartDurationTotal /
+              60
+            ).toFixed(3)
+          ),
+
+
+        opening_duration_seconds:
+          Number(
+            openingDuration
+              .toFixed(3)
+          ),
+
+        ending_duration_seconds:
+          Number(
+            endingDuration
+              .toFixed(3)
+          ),
+
+
+        expected_final_duration_seconds:
+          Number(
+            expectedFinalDuration
+              .toFixed(3)
+          ),
+
+        expected_final_duration_minutes:
+          Number(
+            (
+              expectedFinalDuration /
+              60
+            ).toFixed(3)
+          ),
+
+
+        target_seconds: {
+
+          minimum:
+            TARGET_MIN_SECONDS,
+
+          ideal_maximum:
+            TARGET_IDEAL_MAX_SECONDS,
+
+          hard_maximum:
+            TARGET_HARD_MAX_SECONDS
+        },
+
+
+        audio_part_durations:
+          audioPartDurations,
+
+
+        checked_at:
+          nowIso()
+      };
+
+
+      // ------------------------------------------------------
+      // CLEAN TEMP FILES
+      // ------------------------------------------------------
+
+      try {
+
+        await fsp.rm(
+          probeWorkDir,
+          {
+            recursive:
+              true,
+
+            force:
+              true
+          }
+        );
+
+      } catch (_) {}
+
+
+      return res.json(
+        response
+      );
+
+
+    } catch (error) {
+
+      console.error(
+        `[${probeId}] POST /probe-audio error`,
+        error
+      );
+
+
+      try {
+
+        await fsp.rm(
+          probeWorkDir,
+          {
+            recursive:
+              true,
+
+            force:
+              true
+          }
+        );
+
+      } catch (_) {}
+
+
+      return res
+        .status(400)
+        .json({
+
+          ok:
+            false,
+
+          probe_id:
+            probeId,
+
+          status:
+            'ERROR',
+
+          pass:
+            false,
+
+          error:
+            cleanText(
+              error.message
+            ) ||
+            'Unable to probe narration duration',
+
+          version:
+            SERVER_VERSION
+        });
+    }
+  }
+);
+
+
+// ============================================================
+// CREATE RENDER JOB
 // ============================================================
 
 app.post(
@@ -5678,6 +7185,7 @@ app.post(
 
 
       // Validate before creating expensive background work.
+
       validateScenes(
         scenes
       );
@@ -5862,7 +7370,7 @@ app.post(
 
 
 // ============================================================
-// STATUS
+// RENDER STATUS
 // ============================================================
 
 app.get(
@@ -5900,7 +7408,7 @@ app.get(
 
 
 // ============================================================
-// DOWNLOAD
+// DOWNLOAD RENDERED VIDEO
 // ============================================================
 
 app.get(
@@ -5968,7 +7476,6 @@ app.get(
         outputPath
       );
 
-
     } catch (_) {
 
       return res
@@ -5987,8 +7494,6 @@ app.get(
     );
   }
 );
-
-
 // ============================================================
 // BURN ASS SUBTITLES - ASYNC JOB
 // ============================================================
@@ -5996,26 +7501,35 @@ app.get(
 app.post(
   '/burn-subtitles',
   subtitleUpload.single('video'),
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
+
     let uploadedPath =
       cleanText(
         req.file?.path
       );
 
     try {
+
       await ensureDirectories();
+
 
       if (
         !req.file ||
         !uploadedPath
       ) {
+
         return res
           .status(400)
           .json({
+
             error:
               'Missing video file. Send multipart/form-data field named video.'
           });
       }
+
 
       const assContent =
         cleanText(
@@ -6024,47 +7538,65 @@ app.post(
           req.body?.subtitle
         );
 
+
       if (!assContent) {
+
         try {
+
           await fsp.rm(
             uploadedPath,
             {
               force: true
             }
           );
+
         } catch (_) {}
+
 
         return res
           .status(400)
           .json({
+
             error:
               'Missing ASS subtitle text. Send field named ass_content.'
           });
       }
 
+
       if (
-        !assContent.includes('[Script Info]') ||
-        !assContent.includes('[Events]')
+        !assContent.includes(
+          '[Script Info]'
+        ) ||
+        !assContent.includes(
+          '[Events]'
+        )
       ) {
+
         try {
+
           await fsp.rm(
             uploadedPath,
             {
               force: true
             }
           );
+
         } catch (_) {}
+
 
         return res
           .status(400)
           .json({
+
             error:
               'ass_content does not look like a valid ASS subtitle document.'
           });
       }
 
+
       const subtitleJobId =
         createJobId();
+
 
       const workDir =
         path.join(
@@ -6072,11 +7604,13 @@ app.post(
           subtitleJobId
         );
 
+
       const inputPath =
         path.join(
           workDir,
           'input.mp4'
         );
+
 
       const assPath =
         path.join(
@@ -6084,39 +7618,51 @@ app.post(
           'subtitles.ass'
         );
 
+
       const outputPath =
         path.join(
           SUBTITLE_DIR,
           `${subtitleJobId}.mp4`
         );
 
+
       await fsp.mkdir(
         workDir,
         {
-          recursive: true
+          recursive:
+            true
         }
       );
 
+
       try {
+
         await fsp.rename(
           uploadedPath,
           inputPath
         );
+
       } catch (_) {
+
         await fsp.copyFile(
           uploadedPath,
           inputPath
         );
 
+
         await fsp.rm(
           uploadedPath,
           {
-            force: true
+            force:
+              true
           }
         );
       }
 
-      uploadedPath = '';
+
+      uploadedPath =
+        '';
+
 
       await fsp.writeFile(
         assPath,
@@ -6124,23 +7670,28 @@ app.post(
         'utf8'
       );
 
+
       const inputStat =
         await fsp.stat(
           inputPath
         );
 
+
       if (
         inputStat.size <
         10000
       ) {
+
         throw new Error(
           `Uploaded video is unexpectedly small: ${inputStat.size} bytes`
         );
       }
 
+
       subtitleJobs.set(
         subtitleJobId,
         {
+
           job_id:
             subtitleJobId,
 
@@ -6194,13 +7745,16 @@ app.post(
         }
       );
 
+
       setImmediate(
         () => {
+
           processSubtitleBurnJob(
             subtitleJobId
           )
             .catch(
               error => {
+
                 console.error(
                   `[${subtitleJobId}] Unhandled subtitle job error`,
                   error
@@ -6210,9 +7764,11 @@ app.post(
         }
       );
 
+
       return res
         .status(202)
         .json({
+
           ok:
             true,
 
@@ -6232,26 +7788,35 @@ app.post(
             SERVER_VERSION
         });
 
+
     } catch (error) {
+
       console.error(
         'POST /burn-subtitles error',
         error
       );
 
+
       if (uploadedPath) {
+
         try {
+
           await fsp.rm(
             uploadedPath,
             {
-              force: true
+              force:
+                true
             }
           );
+
         } catch (_) {}
       }
+
 
       return res
         .status(500)
         .json({
+
           ok:
             false,
 
@@ -6259,7 +7824,9 @@ app.post(
             'failed',
 
           error:
-            cleanText(error.message) ||
+            cleanText(
+              error.message
+            ) ||
             'Unable to queue subtitle burn',
 
           version:
@@ -6280,22 +7847,29 @@ app.get(
     req,
     res
   ) => {
+
     const job =
       subtitleJobs.get(
         req.params.jobId
       );
 
+
     if (!job) {
+
       return res
         .status(404)
         .json({
+
           error:
             'Subtitle job not found'
         });
     }
 
+
     return res.json(
-      publicSubtitleJob(job)
+      publicSubtitleJob(
+        job
+      )
     );
   }
 );
@@ -6311,27 +7885,34 @@ app.get(
     req,
     res
   ) => {
+
     const job =
       subtitleJobs.get(
         req.params.jobId
       );
 
+
     if (!job) {
+
       return res
         .status(404)
         .json({
+
           error:
             'Subtitle job not found'
         });
     }
 
+
     if (
       job.status !==
       'completed'
     ) {
+
       return res
         .status(409)
         .json({
+
           error:
             'Subtitle burn is not completed',
 
@@ -6339,34 +7920,45 @@ app.get(
             job.status,
 
           detail:
-            job.error ?? null
+            job.error ??
+            null
         });
     }
+
 
     const outputPath =
       job.output_path;
 
+
     if (!outputPath) {
+
       return res
         .status(404)
         .json({
+
           error:
             'Subtitled output path missing'
         });
     }
 
+
     try {
+
       await fsp.access(
         outputPath
       );
+
     } catch (_) {
+
       return res
         .status(404)
         .json({
+
           error:
             'Subtitled output file not found'
         });
     }
+
 
     return res.download(
       outputPath,
@@ -6399,6 +7991,9 @@ app.get(
 
         health:
           'GET /health',
+
+        probe_audio:
+          'POST /probe-audio',
 
         render:
           'POST /render',
@@ -6494,6 +8089,14 @@ ensureDirectories()
 
           console.log(
             'Duration QA: enabled'
+          );
+
+          console.log(
+            'Audio probe: POST /probe-audio enabled'
+          );
+
+          console.log(
+            `Audio probe gate: <${TARGET_MIN_SECONDS}s TOO_SHORT / ${TARGET_MIN_SECONDS}-${TARGET_IDEAL_MAX_SECONDS}s IDEAL / ${TARGET_IDEAL_MAX_SECONDS + 1}-${TARGET_HARD_MAX_SECONDS}s ACCEPTABLE_LONG / >${TARGET_HARD_MAX_SECONDS}s TOO_LONG`
           );
 
           console.log(
